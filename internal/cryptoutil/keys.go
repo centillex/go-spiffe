@@ -34,5 +34,10 @@ func RSAPublicKeyEqual(a, b *rsa.PublicKey) bool {
 }
 
 func ECDSAPublicKeyEqual(a, b *ecdsa.PublicKey) bool {
-	return a != nil && b != nil && a.Curve != nil && b.Curve != nil && a.X != nil && b.X != nil && a.Y != nil && b.Y != nil && a.Curve == b.Curve && a.X.Cmp(b.X) == 0 && a.Y.Cmp(b.Y) == 0
+	if a == nil || b == nil || a.Curve == nil || a.Curve != b.Curve {
+		return false
+	}
+	aBytes, aErr := a.Bytes()
+	bBytes, bErr := b.Bytes()
+	return aErr == nil && bErr == nil && bytes.Equal(aBytes, bBytes)
 }

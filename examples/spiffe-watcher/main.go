@@ -41,7 +41,7 @@ func startWatchers(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		err := client.WatchX509Context(ctx, &x509Watcher{})
-		if err != nil && status.Code(err) != codes.Canceled {
+		if code := status.Code(err); code != codes.OK && code != codes.Canceled {
 			log.Fatalf("Error watching X.509 context: %v", err)
 		}
 	}()
@@ -51,7 +51,7 @@ func startWatchers(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		err := client.WatchJWTBundles(ctx, &jwtWatcher{})
-		if err != nil && status.Code(err) != codes.Canceled {
+		if code := status.Code(err); code != codes.OK && code != codes.Canceled {
 			log.Fatalf("Error watching JWT bundles: %v", err)
 		}
 	}()
