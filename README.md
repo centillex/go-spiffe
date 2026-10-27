@@ -11,9 +11,10 @@ It leverages the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/mai
 ## Post-quantum fork status
 
 This working tree is implementing `qspiffe-pq-v1`; it is **not yet a strict-PQ
-SDK or production-ready PQ deployment**. ML-DSA key loading/equality support does
-not enforce authentication policy. Classical paths and token APIs still exist;
-JWT-SVID/WIT must not be used as PQ authentication. See
+SDK or production-ready PQ deployment**. The [step-4 enforcement increment](docs/STRICT_TLS_STATUS.md) adds strict
+certificate-path and negotiated-TLS checks, but mutable raw-config APIs and
+other acceptance gaps remain. Token APIs still exist; JWT-SVID/WIT must not be
+used as PQ authentication. See
 [the implementation roadmap](../docs/IMPLEMENTATION_PLAN.md) for remaining
 boundary enforcement, interoperability, and deployment acceptance.
 
@@ -84,8 +85,9 @@ argument). CI uploads these logs as `linux-amd64-go-baseline`.
 [ML-DSA SVID loading](docs/MLDSA_LOADING.md) admits ML-DSA-65 and rejects other
 ML-DSA parameter sets, ambiguous key inputs, and nil/uninitialized keys.
 Internal equality retains broader algorithm capability. Loader checks are not
-strict-profile authentication: certificate-path and TLS boundary enforcement
-remain outstanding.
+authentication. Certificate-path and TLS enforcement now have local test evidence;
+see the [remaining step-4 boundaries](docs/STRICT_TLS_STATUS.md) before relying on
+these APIs.
 
 ## Reporting Security Vulnerabilities
 

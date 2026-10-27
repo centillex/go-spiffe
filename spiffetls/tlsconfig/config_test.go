@@ -43,7 +43,7 @@ func TestTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookTLSClientConfig(t *testing.T) {
@@ -61,7 +61,7 @@ func TestHookTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -81,7 +81,7 @@ func TestMTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookMTLSClientConfig(t *testing.T) {
@@ -102,7 +102,7 @@ func TestHookMTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -199,7 +199,7 @@ func TestMTLSServerConfig(t *testing.T) {
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookMTLSServerConfig(t *testing.T) {
@@ -220,7 +220,7 @@ func TestHookMTLSServerConfig(t *testing.T) {
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -231,14 +231,14 @@ func TestMTLSWebServerConfig(t *testing.T) {
 
 	config := tlsconfig.MTLSWebServerConfig(tlsCert, bundle, tlsconfig.AuthorizeAny())
 
-	assert.Equal(t, []tls.Certificate{*tlsCert}, config.Certificates)
+	assert.Nil(t, config.Certificates)
 	assert.Equal(t, tls.RequireAnyClientCert, config.ClientAuth)
-	assert.Nil(t, config.GetCertificate)
+	assert.NotNil(t, config.GetCertificate)
 	assert.Nil(t, config.GetClientCertificate)
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookMTLSWebServerConfig(t *testing.T) {
@@ -250,14 +250,14 @@ func TestHookMTLSWebServerConfig(t *testing.T) {
 
 	tlsconfig.HookMTLSWebServerConfig(config, tlsCert, bundle, tlsconfig.AuthorizeAny())
 
-	assert.Equal(t, []tls.Certificate{*tlsCert}, config.Certificates)
+	assert.Nil(t, config.Certificates)
 	assert.Equal(t, tls.RequireAnyClientCert, config.ClientAuth)
-	assert.Nil(t, config.GetCertificate)
+	assert.NotNil(t, config.GetCertificate)
 	assert.Nil(t, config.GetClientCertificate)
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -278,6 +278,8 @@ func hookedTracer(onGetCertificate, onGotCertificate func()) tlsconfig.Trace {
 }
 
 func TestGetCertificate(t *testing.T) {
+	ca := test.NewPQCA(t, spiffeid.RequireTrustDomainFromString("trustdomain"))
+	svid := ca.CreateX509SVID(spiffeid.RequireFromString("spiffe://trustdomain/host"))
 	testCases := []struct {
 		name          string
 		source        *fakeSource
@@ -287,15 +289,10 @@ func TestGetCertificate(t *testing.T) {
 		{
 			name: "success",
 			source: &fakeSource{
-				err: nil,
-				svid: &x509svid.SVID{
-					ID: spiffeid.RequireFromString("spiffe://trustdomain/host"),
-					Certificates: []*x509.Certificate{
-						{Raw: []byte("body")},
-					},
-				},
+				err:  nil,
+				svid: svid,
 			},
-			expectedCerts: [][]byte{[]byte("body")},
+			expectedCerts: [][]byte{svid.Certificates[0].Raw},
 		},
 		{
 			name: "source return error",
@@ -331,6 +328,8 @@ func TestGetCertificate(t *testing.T) {
 }
 
 func TestGetClientCertificate(t *testing.T) {
+	ca := test.NewPQCA(t, spiffeid.RequireTrustDomainFromString("trustdomain"))
+	svid := ca.CreateX509SVID(spiffeid.RequireFromString("spiffe://trustdomain/host"))
 	testCases := []struct {
 		name          string
 		source        *fakeSource
@@ -340,15 +339,10 @@ func TestGetClientCertificate(t *testing.T) {
 		{
 			name: "success",
 			source: &fakeSource{
-				err: nil,
-				svid: &x509svid.SVID{
-					ID: spiffeid.RequireFromString("spiffe://trustdomain/host"),
-					Certificates: []*x509.Certificate{
-						{Raw: []byte("body")},
-					},
-				},
+				err:  nil,
+				svid: svid,
 			},
-			expectedCerts: [][]byte{[]byte("body")},
+			expectedCerts: [][]byte{svid.Certificates[0].Raw},
 		},
 		{
 			name: "source return error",
@@ -385,14 +379,14 @@ func TestGetClientCertificate(t *testing.T) {
 
 func TestVerifyPeerCertificate(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1 := ca1.CreateX509SVID(spiffeid.RequireFromPath(td, "/host"))
 	svid1Raw := x509util.RawCertsFromCerts(svid1.Certificates)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	testCases := []struct {
@@ -442,14 +436,14 @@ func TestVerifyPeerCertificate(t *testing.T) {
 
 func TestWrapVerifyPeerCertificate(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1 := ca1.CreateX509SVID(spiffeid.RequireFromPath(td, "/host"))
 	svid1Raw := x509util.RawCertsFromCerts(svid1.Certificates)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	wrapped := func([][]byte, [][]*x509.Certificate) error {
@@ -514,17 +508,17 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 
 func TestTLSHandshake(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1ID := spiffeid.RequireFromPath(td, "/server")
 	serverSVID := ca1.CreateX509SVID(svid1ID)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
-	ca3 := test.NewCA(t, td)
+	ca3 := test.NewPQCA(t, td)
 	bundle3 := ca3.Bundle()
 
 	testCases := []struct {
@@ -571,7 +565,7 @@ func TestTLSHandshake(t *testing.T) {
 
 func TestMTLSHandshake(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1ID := spiffeid.RequireFromPath(td, "/server")
@@ -581,12 +575,12 @@ func TestMTLSHandshake(t *testing.T) {
 	clientSVID := ca1.CreateX509SVID(svid2ID)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	// Create a new bundle with same TD and SVID in order to verify that
 	// presented certificates fails on handshake.
-	ca3 := test.NewCA(t, td)
+	ca3 := test.NewPQCA(t, td)
 	bundle3 := ca3.Bundle()
 
 	svid3ID := spiffeid.RequireFromPath(td, "/client")
@@ -650,13 +644,13 @@ func TestMTLSHandshake(t *testing.T) {
 
 func TestMTLSWebHandshake(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	serverID := spiffeid.RequireFromPath(td, "/server")
 	serverSVID := ca1.CreateX509SVID(serverID)
 
-	roots, tlsCert := test.CreateWebCredentials(t)
+	roots, tlsCert := test.CreatePQWebCredentials(t)
 	roots2 := x509.NewCertPool()
 	roots2.AddCert(serverSVID.Certificates[0])
 
@@ -664,12 +658,12 @@ func TestMTLSWebHandshake(t *testing.T) {
 	clientSVID := ca1.CreateX509SVID(clientID)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	// Create a new bundle with same TD and SVID in order to verify that
 	// presented certificates fails on handshake.
-	ca3 := test.NewCA(t, td)
+	ca3 := test.NewPQCA(t, td)
 	svid3ID := spiffeid.RequireFromPath(td, "/client")
 	client3SVID := ca3.CreateX509SVID(svid3ID)
 
@@ -846,7 +840,7 @@ func createBaseTLSConfig() *tls.Config {
 }
 
 func assertUnrelatedFieldsUntouched(t testing.TB, base, wrapped *tls.Config) {
-	assert.Equal(t, base.Rand, wrapped.Rand) //nolint:staticcheck // verify legacy caller field is preserved
+	assert.Nil(t, wrapped.Rand) //nolint:staticcheck // caller-controlled randomness is prohibited
 	assert.NotNil(t, wrapped.Time)
 	assert.NotNil(t, wrapped.GetConfigForClient)
 	assert.Equal(t, base.NextProtos, wrapped.NextProtos)
@@ -855,10 +849,10 @@ func assertUnrelatedFieldsUntouched(t testing.TB, base, wrapped *tls.Config) {
 	assert.Equal(t, base.CipherSuites, wrapped.CipherSuites)
 	assert.Equal(t, base.SessionTicketsDisabled, wrapped.SessionTicketsDisabled)
 	assert.Equal(t, base.SessionTicketKey, wrapped.SessionTicketKey) //nolint:staticcheck // need to assert this field is not inadvertently mutated
-	assert.Equal(t, base.ClientSessionCache, wrapped.ClientSessionCache)
-	assert.Equal(t, base.MinVersion, wrapped.MinVersion)
-	assert.Equal(t, base.MaxVersion, wrapped.MaxVersion)
-	assert.Equal(t, base.CurvePreferences, wrapped.CurvePreferences)
+	assert.Nil(t, wrapped.ClientSessionCache)
+	assert.Equal(t, uint16(tls.VersionTLS13), wrapped.MinVersion)
+	assert.Equal(t, uint16(tls.VersionTLS13), wrapped.MaxVersion)
+	assert.Equal(t, []tls.CurveID{tls.X25519MLKEM768, tls.SecP256r1MLKEM768}, wrapped.CurvePreferences)
 	assert.Equal(t, base.DynamicRecordSizingDisabled, wrapped.DynamicRecordSizingDisabled)
 	assert.Equal(t, base.Renegotiation, wrapped.Renegotiation)
 	assert.Equal(t, base.KeyLogWriter, wrapped.KeyLogWriter)

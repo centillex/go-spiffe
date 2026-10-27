@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/spiffe/go-spiffe/v2/internal/pqpolicy"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -51,9 +52,9 @@ func DialWithMode(ctx context.Context, network, addr string, mode DialMode, opti
 		option.apply(opt)
 	}
 
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} // MinVersion is also set by the Hook methods, but just in case...
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13} // MinVersion is also set by the Hook methods, but just in case...
 	if opt.baseTLSConf != nil {
-		tlsConfig = opt.baseTLSConf
+		tlsConfig = opt.baseTLSConf.Clone()
 	}
 
 	switch m.mode {
@@ -77,6 +78,12 @@ func DialWithMode(ctx context.Context, network, addr string, mode DialMode, opti
 		return nil, wrapSpiffetlsErr(fmt.Errorf("unable to dial: %w", err))
 	}
 
+	if m.mode == mtlsClientMode || m.mode == mtlsWebClientMode {
+		if err := pqpolicy.CheckMutualTLS(conn.ConnectionState()); err != nil {
+			conn.Close()
+			return nil, wrapSpiffetlsErr(err)
+		}
+	}
 	return &clientConn{
 		Conn:         conn,
 		sourceCloser: sourceCloser,

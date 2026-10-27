@@ -83,9 +83,9 @@ func NewListenerWithMode(ctx context.Context, inner net.Listener, mode ListenMod
 		option.apply(opt)
 	}
 
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} // MinVersion is also set by the Hook methods, but just in case..
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13} // MinVersion is also set by the Hook methods, but just in case..
 	if opt.baseTLSConf != nil {
-		tlsConfig = opt.baseTLSConf
+		tlsConfig = opt.baseTLSConf.Clone()
 	}
 
 	switch m.mode {

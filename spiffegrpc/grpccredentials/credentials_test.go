@@ -21,10 +21,10 @@ import (
 )
 
 func TestCredentials(t *testing.T) {
-	webRoots, webCert := test.CreateWebCredentials(t)
+	webRoots, webCert := test.CreatePQWebCredentials(t)
 
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	bundle := ca.Bundle()
 	serverSVID := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/server"))
 	clientSVID := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/client"))
@@ -64,12 +64,10 @@ func TestCredentials(t *testing.T) {
 	})
 
 	t.Run("mTLS to TLS", func(t *testing.T) {
-		// Handshake will succeed, but the server won't pick up (or validate)
-		// the client SVID.
+		// Strict mTLS must reject a server that does not request client credentials.
 		testCredentials(t, clientMTLS, serverTLS, expectResult{
-			Code:     codes.OK,
-			ServerID: serverID,
-			ClientID: "",
+			Code:            codes.Unavailable,
+			MessageContains: "mutual certificate exchange is required",
 		})
 	})
 

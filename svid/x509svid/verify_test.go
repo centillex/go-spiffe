@@ -16,17 +16,18 @@ import (
 
 func TestVerify(t *testing.T) {
 	td1 := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td1)
+	ca1 := test.NewPQCA(t, td1)
 	leaf1 := ca1.CreateX509SVID(spiffeid.RequireFromPath(td1, "/workload")).Certificates
-	leaf1NoURI := removeURIs(leaf1[0])
-	leaf1DupUris := dupURIs(leaf1[0])
-	leaf1IsCA := setIsCA(leaf1[0])
-	leaf1WithCertSign := appendKeyUsage(leaf1[0], x509.KeyUsageCertSign)
-	leaf1WithCRLSign := appendKeyUsage(leaf1[0], x509.KeyUsageCRLSign)
+	// Negative identities/usages must be in signed DER, not mutable parsed fields.
+	leaf1NoURI, _ := ca1.CreateX509Certificate()
+	leaf1DupUris, _ := ca1.CreateX509Certificate(test.WithURIs(leaf1[0].URIs[0], leaf1[0].URIs[0]))
+	leaf1IsCA, _ := ca1.CreateX509Certificate(test.WithURIs(leaf1[0].URIs[0]), test.WithIsCA(true))
+	leaf1WithCertSign, _ := ca1.CreateX509Certificate(test.WithURIs(leaf1[0].URIs[0]), test.WithKeyUsage(x509.KeyUsageDigitalSignature|x509.KeyUsageCertSign))
+	leaf1WithCRLSign, _ := ca1.CreateX509Certificate(test.WithURIs(leaf1[0].URIs[0]), test.WithKeyUsage(x509.KeyUsageDigitalSignature|x509.KeyUsageCRLSign))
 	bundle1 := ca1.X509Bundle()
 
 	td2 := spiffeid.RequireTrustDomainFromString("spiffe://domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	// bad leaf cert... invalid spiffe ID
@@ -142,7 +143,7 @@ func TestVerify(t *testing.T) {
 
 func TestParseAndVerify(t *testing.T) {
 	td1 := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td1)
+	ca1 := test.NewPQCA(t, td1)
 	leaf1 := ca1.CreateX509SVID(spiffeid.RequireFromPath(td1, "/workload")).Certificates
 	bundle1 := ca1.X509Bundle()
 
@@ -156,28 +157,4 @@ func TestParseAndVerify(t *testing.T) {
 	_, verifiedChains, err = x509svid.ParseAndVerify([][]byte{rawLeaf}, bundle1)
 	require.Contains(t, err.Error(), "x509svid: unable to parse certificate")
 	require.Nil(t, verifiedChains)
-}
-
-func removeURIs(cert *x509.Certificate) []*x509.Certificate {
-	c := *cert
-	c.URIs = []*url.URL{}
-	return []*x509.Certificate{&c}
-}
-
-func dupURIs(cert *x509.Certificate) []*x509.Certificate {
-	c := *cert
-	c.URIs = append(c.URIs, c.URIs...)
-	return []*x509.Certificate{&c}
-}
-
-func setIsCA(cert *x509.Certificate) []*x509.Certificate {
-	c := *cert
-	c.IsCA = true
-	return []*x509.Certificate{&c}
-}
-
-func appendKeyUsage(cert *x509.Certificate, ku x509.KeyUsage) []*x509.Certificate {
-	c := *cert
-	c.KeyUsage |= ku
-	return []*x509.Certificate{&c}
 }

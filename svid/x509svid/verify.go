@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/internal/pqpolicy"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
@@ -24,9 +25,17 @@ func WithTime(now time.Time) VerifyOption {
 	})
 }
 
+// WithKeyUsage restricts verification to the peer's TLS role. Only ServerAuth
+// and ClientAuth are supported. Without this option both usages are required.
+func WithKeyUsage(usage x509.ExtKeyUsage) VerifyOption {
+	return verifyOption(func(config *verifyConfig) { config.usage = usage; config.hasUsage = true })
+}
+
 // Verify verifies an X509-SVID chain using the X.509 bundle source. It
 // returns the SPIFFE ID of the X509-SVID and one or more chains back to a root
-// in the bundle.
+// in the bundle. Only qspiffe-pq-v1 paths are returned. Signed DER is
+// authoritative; mutations to parsed certificate fields are not trusted.
+// Unless WithKeyUsage is specified, both TLS server and client usages are required.
 func Verify(certs []*x509.Certificate, bundleSource x509bundle.Source, opts ...VerifyOption) (spiffeid.ID, [][]*x509.Certificate, error) {
 	config := &verifyConfig{}
 	for _, opt := range opts {
@@ -40,6 +49,17 @@ func Verify(certs []*x509.Certificate, bundleSource x509bundle.Source, opts ...V
 		return spiffeid.ID{}, nil, wrapX509svidErr(errors.New("bundleSource is required"))
 	}
 
+	usages := []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
+	if config.hasUsage {
+		if config.usage != x509.ExtKeyUsageServerAuth && config.usage != x509.ExtKeyUsageClientAuth {
+			return spiffeid.ID{}, nil, wrapX509svidErr(errors.New("unsupported verification key usage"))
+		}
+		usages = []x509.ExtKeyUsage{config.usage}
+	}
+	certs, err := pqpolicy.ParseCertificates(certs)
+	if err != nil {
+		return spiffeid.ID{}, nil, wrapX509svidErr(err)
+	}
 	leaf := certs[0]
 	id, err := IDFromCert(leaf)
 	if err != nil {
@@ -47,6 +67,10 @@ func Verify(certs []*x509.Certificate, bundleSource x509bundle.Source, opts ...V
 	}
 
 	switch {
+	case id.Path() == "":
+		return id, nil, wrapX509svidErr(errors.New("leaf SPIFFE ID must have a non-root path"))
+	case leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0:
+		return id, nil, wrapX509svidErr(errors.New("leaf certificate requires digitalSignature key usage"))
 	case leaf.IsCA:
 		return id, nil, wrapX509svidErr(errors.New("leaf certificate with CA flag set to true"))
 	case leaf.KeyUsage&x509.KeyUsageCertSign > 0:
@@ -60,17 +84,33 @@ func Verify(certs []*x509.Certificate, bundleSource x509bundle.Source, opts ...V
 		return id, nil, wrapX509svidErr(fmt.Errorf("could not get X509 bundle: %w", err))
 	}
 
+	if bundle == nil || bundle.TrustDomain() != id.TrustDomain() {
+		return id, nil, wrapX509svidErr(errors.New("bundle is nil or has the wrong trust domain"))
+	}
+	authorities, err := pqpolicy.ParseCertificates(bundle.X509Authorities())
+	if err != nil {
+		return id, nil, wrapX509svidErr(err)
+	}
 	verifiedChains, err := leaf.Verify(x509.VerifyOptions{
-		Roots:         x509util.NewCertPool(bundle.X509Authorities()),
+		Roots:         x509util.NewCertPool(authorities),
 		Intermediates: x509util.NewCertPool(certs[1:]),
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		KeyUsages:     usages,
 		CurrentTime:   config.now,
 	})
 	if err != nil {
 		return id, nil, wrapX509svidErr(fmt.Errorf("could not verify leaf certificate: %w", err))
 	}
 
-	return id, verifiedChains, nil
+	approved := make([][]*x509.Certificate, 0, len(verifiedChains))
+	for _, chain := range verifiedChains {
+		if pqpolicy.CheckPath(chain, usages...) == nil {
+			approved = append(approved, chain)
+		}
+	}
+	if len(approved) == 0 {
+		return id, nil, wrapX509svidErr(fmt.Errorf("%s: no approved certification path", pqpolicy.ID))
+	}
+	return id, approved, nil
 }
 
 // ParseAndVerify parses and verifies an X509-SVID chain using the X.509
@@ -93,16 +133,23 @@ func ParseAndVerify(rawCerts [][]byte, bundleSource x509bundle.Source, opts ...V
 // exactly one URI SAN with a well-formed SPIFFE ID.
 func IDFromCert(cert *x509.Certificate) (spiffeid.ID, error) {
 	switch {
+	case cert == nil:
+		return spiffeid.ID{}, errors.New("nil certificate")
 	case len(cert.URIs) == 0:
 		return spiffeid.ID{}, errors.New("certificate contains no URI SAN")
 	case len(cert.URIs) > 1:
 		return spiffeid.ID{}, errors.New("certificate contains more than one URI SAN")
 	}
+	if cert.URIs[0] == nil {
+		return spiffeid.ID{}, errors.New("nil URI SAN")
+	}
 	return spiffeid.FromURI(cert.URIs[0])
 }
 
 type verifyConfig struct {
-	now time.Time
+	now      time.Time
+	usage    x509.ExtKeyUsage
+	hasUsage bool
 }
 
 type verifyOption func(config *verifyConfig)
