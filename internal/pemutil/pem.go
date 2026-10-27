@@ -3,6 +3,7 @@ package pemutil
 import (
 	"crypto"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -40,11 +41,33 @@ func ParsePrivateKey(keyBytes []byte) (crypto.PrivateKey, error) {
 		return nil, nil
 	}
 
+	if len(objects) != 1 {
+		return nil, errors.New("multiple private keys found")
+	}
+
 	privateKey, ok := objects[0].(crypto.PrivateKey)
 	if !ok {
 		return nil, fmt.Errorf("expected crypto.PrivateKey; got %T", objects[0])
 	}
 	return privateKey, nil
+}
+
+// ParsePKCS8PrivateKey requires a single DER object. The standard parser can
+// otherwise ignore trailing objects, making key selection ambiguous.
+func ParsePKCS8PrivateKey(der []byte) (crypto.PrivateKey, error) {
+	key, err := x509.ParsePKCS8PrivateKey(der)
+	if err != nil {
+		return nil, err
+	}
+	var object asn1.RawValue
+	rest, err := asn1.Unmarshal(der, &object)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		return nil, errors.New("trailing data after PKCS#8 private key")
+	}
+	return key, nil
 }
 
 func EncodePKCS8PrivateKey(privateKey any) ([]byte, error) {
@@ -110,7 +133,7 @@ func parseBlock(pemBytes []byte, pemType string) (any, []byte, bool, error) {
 	case certType:
 		object, err = x509.ParseCertificate(pemBlock.Bytes)
 	case keyType:
-		object, err = x509.ParsePKCS8PrivateKey(pemBlock.Bytes)
+		object, err = ParsePKCS8PrivateKey(pemBlock.Bytes)
 	default:
 		err = fmt.Errorf("PEM type not supported: %q", pemType)
 	}
