@@ -1,16 +1,17 @@
 package x509svid
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
 
+	"github.com/spiffe/go-spiffe/v2/internal/cryptoutil"
 	"github.com/spiffe/go-spiffe/v2/internal/pemutil"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
@@ -148,6 +149,12 @@ func validateCertificates(certificates []*x509.Certificate) (*spiffeid.ID, error
 		return nil, errors.New("no certificates found")
 	}
 
+	for _, cert := range certificates {
+		if cert == nil {
+			return nil, errors.New("nil certificate")
+		}
+	}
+
 	leafID, err := validateLeafCertificate(certificates[0])
 	if err != nil {
 		return nil, err
@@ -230,24 +237,37 @@ func validatePrivateKey(privateKey crypto.PrivateKey, leaf *x509.Certificate) (c
 
 func keyMatches(privateKey crypto.PrivateKey, publicKey crypto.PublicKey) (bool, error) {
 	switch privateKey := privateKey.(type) {
+	case *mldsa.PrivateKey:
+		if privateKey == nil {
+			return false, errors.New("nil ML-DSA private key")
+		}
+		return cryptoutil.PublicKeyEqual(privateKey.Public(), publicKey)
 	case *rsa.PrivateKey:
+		if privateKey == nil {
+			return false, errors.New("nil RSA private key")
+		}
 		rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
 		return ok && rsaPublicKeyEqual(&privateKey.PublicKey, rsaPublicKey), nil
 	case *ecdsa.PrivateKey:
+		if privateKey == nil {
+			return false, errors.New("nil ECDSA private key")
+		}
 		ecdsaPublicKey, ok := publicKey.(*ecdsa.PublicKey)
 		return ok && ecdsaPublicKeyEqual(&privateKey.PublicKey, ecdsaPublicKey), nil
 	case ed25519.PrivateKey:
-		ed25519PublicKey, ok := publicKey.(ed25519.PublicKey)
-		return ok && bytes.Equal(privateKey.Public().(ed25519.PublicKey), ed25519PublicKey), nil
+		if len(privateKey) != ed25519.PrivateKeySize {
+			return false, errors.New("invalid Ed25519 private key length")
+		}
+		return cryptoutil.PublicKeyEqual(privateKey.Public(), publicKey)
 	default:
 		return false, fmt.Errorf("unsupported private key type %T", privateKey)
 	}
 }
 
 func rsaPublicKeyEqual(a, b *rsa.PublicKey) bool {
-	return a.E == b.E && a.N.Cmp(b.N) == 0
+	return cryptoutil.RSAPublicKeyEqual(a, b)
 }
 
 func ecdsaPublicKeyEqual(a, b *ecdsa.PublicKey) bool {
-	return a.Curve == b.Curve && a.X.Cmp(b.X) == 0 && a.Y.Cmp(b.Y) == 0
+	return cryptoutil.ECDSAPublicKeyEqual(a, b)
 }

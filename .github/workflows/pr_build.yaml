@@ -3,6 +3,8 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+env:
+  GOTOOLCHAIN: local
 jobs:
   lint-linux:
     runs-on: ubuntu-latest
@@ -15,6 +17,9 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
           go-version-file: go.mod
+      - name: Verify Go baseline
+        shell: bash
+        run: test "$(go env GOVERSION)" = "go1.27.3"
       - name: Lint
         run: make lint
 
@@ -29,8 +34,18 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
           go-version-file: go.mod
-      - name: Test
-        run: make test
+      - name: Verify Go baseline
+        shell: bash
+        run: test "$(go env GOVERSION)" = "go1.27.3"
+      - name: Verify Linux baseline
+        run: bash scripts/verify-go-baseline.sh .build/baseline
+      - name: Upload baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-go-baseline
+          path: .build/baseline
+          if-no-files-found: error
 
   lint-windows:
     runs-on: windows-2022
@@ -46,6 +61,9 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
           go-version-file: go.mod
+      - name: Verify Go baseline
+        shell: bash
+        run: test "$(go env GOVERSION)" = "go1.27.3"
       - name: Install msys2
         uses: msys2/setup-msys2@v2
         with:
@@ -73,6 +91,9 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
           go-version-file: go.mod
+      - name: Verify Go baseline
+        shell: bash
+        run: test "$(go env GOVERSION)" = "go1.27.3"
       - name: Install msys2
         uses: msys2/setup-msys2@v2
         with:

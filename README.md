@@ -8,6 +8,15 @@ It leverages the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/mai
 * Federating trust between trust domains using [SPIFFE bundles](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Trust_Domain_and_Bundle.md#3-spiffe-bundles).
 * Bundle management.
 
+## Post-quantum fork status
+
+This working tree is implementing `qspiffe-pq-v1`; it is **not yet a strict-PQ
+SDK or production-ready PQ deployment**. ML-DSA key loading/equality support does
+not enforce authentication policy. Classical paths and token APIs still exist;
+JWT-SVID/WIT must not be used as PQ authentication. See
+[the implementation roadmap](../docs/IMPLEMENTATION_PLAN.md) for remaining
+boundary enforcement, interoperability, and deployment acceptance.
+
 ## Documentation
 
 See the [Go Package](https://pkg.go.dev/github.com/spiffe/go-spiffe/v2) documentation.
@@ -47,11 +56,34 @@ The [examples](./examples) directory contains rich examples for a variety of cir
 
 ## Supported Go Versions
 
-This library tracks the minimum officially supported Go version (i.e. N-1). The
-only exception to this policy will be in response to a security issue affecting
-a dependency that forces a premature upgrade. This action is expected to be rare, 
-will not be taken lightly, and not until reasonable efforts to mitigate the
-security issue while maintaining this policy are pursued.
+This fork requires Go **1.27.3** (including native `crypto/mldsa` support),
+intentionally replacing upstream's N-1 compatibility policy. The initial
+validation target is Linux/amd64. Other platforms and FIPS certification are not
+claimed. Module and Makefile toolchain versions agree; CI reads `go.mod` and
+checks the selected version. Local commands can select the toolchain without
+changing the system installation:
+
+```sh
+GOTOOLCHAIN=go1.27.3 go build ./...
+GOTOOLCHAIN=go1.27.3 go test -count=1 ./...
+GOTOOLCHAIN=go1.27.3 go test -race -count=1 ./...
+```
+
+For the shared Linux/amd64 CI acceptance runner (build, vet, regression, race,
+and a bounded policy-binary reproducibility check):
+
+```sh
+root=$(GOTOOLCHAIN=go1.27.3 go env GOROOT)
+PATH="$root/bin:$PATH" bash scripts/verify-go-baseline.sh
+```
+
+The runner disables automatic toolchain switching, requires the exact baseline,
+and saves logs under `.build/baseline` (or a directory supplied as its first
+argument). CI uploads these logs as `linux-amd64-go-baseline`.
+
+ML-DSA loading is an algorithm capability, not strict-profile admission. The
+strict profile only permits ML-DSA-65 at authentication boundaries; implementing
+those checks remains outstanding.
 
 ## Reporting Security Vulnerabilities
 
