@@ -81,9 +81,11 @@ The runner disables automatic toolchain switching, requires the exact baseline,
 and saves logs under `.build/baseline` (or a directory supplied as its first
 argument). CI uploads these logs as `linux-amd64-go-baseline`.
 
-ML-DSA loading is an algorithm capability, not strict-profile admission. The
-strict profile only permits ML-DSA-65 at authentication boundaries; implementing
-those checks remains outstanding.
+[ML-DSA SVID loading](docs/MLDSA_LOADING.md) admits ML-DSA-65 and rejects other
+ML-DSA parameter sets, ambiguous key inputs, and nil/uninitialized keys.
+Internal equality retains broader algorithm capability. Loader checks are not
+strict-profile authentication: certificate-path and TLS boundary enforcement
+remain outstanding.
 
 ## Reporting Security Vulnerabilities
 

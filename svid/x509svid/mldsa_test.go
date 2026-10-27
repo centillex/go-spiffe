@@ -72,7 +72,7 @@ func TestMLDSALoading(t *testing.T) {
 func TestKeyMatchingRejectsNilAndMalformed(t *testing.T) {
 	key, err := mldsa.GenerateKey(mldsa.MLDSA65())
 	require.NoError(t, err)
-	for _, bad := range []crypto.PrivateKey{nil, (*mldsa.PrivateKey)(nil), (*rsa.PrivateKey)(nil), (*ecdsa.PrivateKey)(nil), ed25519.PrivateKey(nil), ed25519.PrivateKey{1}, "unsupported"} {
+	for _, bad := range []crypto.PrivateKey{nil, (*mldsa.PrivateKey)(nil), &mldsa.PrivateKey{}, (*rsa.PrivateKey)(nil), (*ecdsa.PrivateKey)(nil), ed25519.PrivateKey(nil), ed25519.PrivateKey{1}, "unsupported"} {
 		matched, err := keyMatches(bad, key.Public())
 		require.Error(t, err)
 		require.False(t, matched)

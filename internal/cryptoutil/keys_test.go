@@ -27,7 +27,7 @@ func TestMLDSAPublicKeyEquality(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, equal)
 	}
-	for _, other := range []crypto.PublicKey{nil, (*mldsa.PublicKey)(nil), (*rsa.PublicKey)(nil), (*ecdsa.PublicKey)(nil), ed25519.PublicKey(nil), &rsa.PublicKey{}, &ecdsa.PublicKey{}, "unsupported"} {
+	for _, other := range []crypto.PublicKey{nil, (*mldsa.PublicKey)(nil), &mldsa.PublicKey{}, (*rsa.PublicKey)(nil), (*ecdsa.PublicKey)(nil), ed25519.PublicKey(nil), &rsa.PublicKey{}, &ecdsa.PublicKey{}, "unsupported"} {
 		equal, _ := PublicKeyEqual(pub, other)
 		require.False(t, equal)
 		equal, _ = PublicKeyEqual(other, pub)
