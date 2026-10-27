@@ -15,7 +15,7 @@ func ExampleFetchX509SVID() {
 	}
 
 	// TODO: use the X509-SVID
-	svid = svid
+	_ = svid
 }
 
 func ExampleFetchJWTSVID() {
@@ -32,7 +32,7 @@ func ExampleFetchJWTSVID() {
 	}
 
 	// TODO: use the JWT-SVID
-	svid = svid
+	_ = svid
 }
 
 func ExampleValidateJWTSVID() {
@@ -48,5 +48,5 @@ func ExampleValidateJWTSVID() {
 	}
 
 	// TODO: use the JWT-SVID
-	svid = svid
+	_ = svid
 }

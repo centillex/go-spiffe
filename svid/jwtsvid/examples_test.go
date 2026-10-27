@@ -29,5 +29,5 @@ func ExampleParseAndValidate() {
 	}
 
 	// TODO: do something with the JWT-SVID
-	svid = svid
+	_ = svid
 }

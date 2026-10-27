@@ -28,7 +28,7 @@ func ExampleMTLSServerConfig_fileSource() {
 
 	config := tlsconfig.MTLSServerConfig(svid, bundle, tlsconfig.AuthorizeMemberOf(td))
 	// TODO: use the config
-	config = config
+	_ = config
 }
 
 func ExampleMTLSServerConfig_workloadAPISource() {
@@ -45,5 +45,5 @@ func ExampleMTLSServerConfig_workloadAPISource() {
 
 	config := tlsconfig.MTLSServerConfig(source, source, tlsconfig.AuthorizeMemberOf(td))
 	// TODO: use the config
-	config = config
+	_ = config
 }

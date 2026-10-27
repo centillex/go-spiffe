@@ -25,7 +25,7 @@ func ExampleFetchBundle_webPKI() {
 	}
 
 	// TODO: use bundle
-	bundle = bundle
+	_ = bundle
 }
 
 func ExampleFetchBundle_sPIFFEAuth() {
