@@ -1,0 +1,9 @@
+{
+  "name": "qspiffe-pq-bundle-interop",
+  "private": true,
+  "type": "module",
+  "description": "Bounded public-key bundle interoperability validation; not a runtime SDK dependency",
+  "dependencies": {
+    "jose": "6.2.13"
+  }
+}

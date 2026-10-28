@@ -52,7 +52,10 @@ func WithWebPKIRoots(rootCAs *x509.CertPool) FetchOption {
 	})
 }
 
-// FetchBundle retrieves a bundle from a bundle endpoint.
+// FetchBundle retrieves strict-profile X.509 trust from an authenticated HTTPS
+// bundle endpoint. JWT/WIT and unknown-use entries are discarded, not admitted
+// as token trust. Recognized classical X.509 authorities are rejected. The caller
+// must associate trustDomain with the configured authenticated endpoint.
 func FetchBundle(ctx context.Context, trustDomain spiffeid.TrustDomain, url string, option ...FetchOption) (*spiffebundle.Bundle, error) {
 	opts := fetchOptions{
 		transport: &http.Transport{},
@@ -85,7 +88,7 @@ func FetchBundle(ctx context.Context, trustDomain spiffeid.TrustDomain, url stri
 	}
 	defer response.Body.Close()
 
-	bundle, err := spiffebundle.Read(trustDomain, response.Body)
+	bundle, err := spiffebundle.ReadX509Only(trustDomain, response.Body)
 	if err != nil {
 		return nil, wrapFederationErr(err)
 	}

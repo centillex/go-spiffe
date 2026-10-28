@@ -103,8 +103,9 @@ HTTP/2 integration via net/http is not claimed; gRPC has its own h2 adapter.
 Federation FetchBundle uses a fresh transport, the owned SPIFFE or PQ Web PKI
 client, and HTTPS only. It does not inherit global dialers/proxies or follow
 redirects (including HTTPS redirects to a different endpoint). These are
-transport protections, not step-5 bundle admission or real federation deployment
-evidence. Payload serialization/trust admission remains separate work.
+transport protections, not real federation deployment evidence. The subsequent
+[bundle implementation](PQ_BUNDLE_FORMAT.md) adds PQ payload encoding and an
+X.509-only admission reader; it does not replace deployment acceptance.
 
 ## Validation scope
 

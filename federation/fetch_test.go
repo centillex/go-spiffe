@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/federation"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
 	"github.com/spiffe/go-spiffe/v2/internal/test/fakebundleendpoint"
@@ -18,8 +19,8 @@ var (
 )
 
 func TestFetchBundle_WebPKIRoots(t *testing.T) {
-	ca := test.NewCA(t, td)
-	bundle := ca.Bundle()
+	ca := test.NewPQCA(t, td)
+	bundle := spiffebundle.FromX509Bundle(ca.X509Bundle())
 
 	be := fakebundleendpoint.New(t, fakebundleendpoint.WithTestBundles(bundle))
 	defer be.Shutdown()
@@ -34,9 +35,8 @@ func TestFetchBundle_SPIFFEAuth(t *testing.T) {
 	id := spiffeid.RequireFromPath(td, "/control-plane/test-bundle-endpoint")
 	ca := test.NewPQCA(t, td)
 	svid := ca.CreateX509SVID(id, test.WithIPAddresses(localhostIPs...))
-	// Payload serialization remains a separate step-5 concern; use a distinct
-	// classical payload fixture while authenticating this transport with PQ.
-	bundle := test.NewCA(t, td).Bundle()
+	// Payload and endpoint are independently generated PQ credentials.
+	bundle := spiffebundle.FromX509Bundle(test.NewPQCA(t, td).X509Bundle())
 
 	be := fakebundleendpoint.New(t,
 		fakebundleendpoint.WithTestBundles(bundle),
@@ -53,9 +53,8 @@ func TestFetchBundle_SPIFFEAuth_UnexpectedID(t *testing.T) {
 	id := spiffeid.RequireFromPath(td, "/control-plane/test-bundle-endpoint")
 	ca := test.NewPQCA(t, td)
 	svid := ca.CreateX509SVID(id, test.WithIPAddresses(localhostIPs...))
-	// Payload serialization remains a separate step-5 concern; use a distinct
-	// classical payload fixture while authenticating this transport with PQ.
-	bundle := test.NewCA(t, td).Bundle()
+	// Payload and endpoint are independently generated PQ credentials.
+	bundle := spiffebundle.FromX509Bundle(test.NewPQCA(t, td).X509Bundle())
 
 	be := fakebundleendpoint.New(t,
 		fakebundleendpoint.WithTestBundles(bundle),

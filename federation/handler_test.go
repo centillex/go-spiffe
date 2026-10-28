@@ -113,7 +113,7 @@ func TestHandler(t *testing.T) {
 			},
 			statusCode: http.StatusInternalServerError,
 			response:   "unable to serve bundle for \"test.domain\"\n",
-			log:        "unable to marshal bundle for trust domain \"test.domain\": json: error calling MarshalJSON",
+			log:        "unable to marshal bundle for trust domain \"test.domain\": spiffebundle: invalid authority DER",
 		},
 	}
 

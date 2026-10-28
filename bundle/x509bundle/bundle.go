@@ -112,12 +112,12 @@ func (b *Bundle) AddX509Authority(x509Authority *x509.Certificate) {
 	defer b.mtx.Unlock()
 
 	for _, r := range b.x509Authorities {
-		if r.Equal(x509Authority) {
+		if x509util.CertificatesEqual(r, x509Authority) {
 			return
 		}
 	}
 
-	b.x509Authorities = append(b.x509Authorities, x509Authority)
+	b.x509Authorities = append(b.x509Authorities, x509util.CopyX509Authority(x509Authority))
 }
 
 // RemoveX509Authority removes an X.509 authority from the bundle.
@@ -126,7 +126,7 @@ func (b *Bundle) RemoveX509Authority(x509Authority *x509.Certificate) {
 	defer b.mtx.Unlock()
 
 	for i, r := range b.x509Authorities {
-		if r.Equal(x509Authority) {
+		if x509util.CertificatesEqual(r, x509Authority) {
 			// remove element from slice
 			b.x509Authorities = append(b.x509Authorities[:i], b.x509Authorities[i+1:]...)
 			return
@@ -140,7 +140,7 @@ func (b *Bundle) HasX509Authority(x509Authority *x509.Certificate) bool {
 	defer b.mtx.RUnlock()
 
 	for _, r := range b.x509Authorities {
-		if r.Equal(x509Authority) {
+		if x509util.CertificatesEqual(r, x509Authority) {
 			return true
 		}
 	}
@@ -165,8 +165,19 @@ func (b *Bundle) Empty() bool {
 
 // Marshal marshals the X.509 bundle into PEM-encoded certificate blocks.
 func (b *Bundle) Marshal() ([]byte, error) {
+	if b == nil {
+		return nil, wrapX509bundleErr(fmt.Errorf("nil bundle"))
+	}
 	b.mtx.RLock()
 	defer b.mtx.RUnlock()
+	for _, cert := range b.x509Authorities {
+		if cert == nil {
+			return nil, wrapX509bundleErr(fmt.Errorf("nil authority"))
+		}
+		if _, err := x509.ParseCertificate(cert.Raw); err != nil {
+			return nil, wrapX509bundleErr(fmt.Errorf("invalid authority DER: %w", err))
+		}
+	}
 	return pemutil.EncodeCertificates(b.x509Authorities), nil
 }
 
@@ -176,6 +187,10 @@ func (b *Bundle) Equal(other *Bundle) bool {
 		return b == other
 	}
 
+	if b == other {
+		return true
+	}
+	b, other = b.Clone(), other.Clone()
 	return b.trustDomain == other.trustDomain &&
 		x509util.CertsEqual(b.x509Authorities, other.x509Authorities)
 }

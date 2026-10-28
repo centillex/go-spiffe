@@ -14,18 +14,19 @@ import (
 
 func TestWatchBundle_OnUpdate(t *testing.T) {
 	var watcher *fakewatcher
-	ca1 := test.NewCA(t, td)
-	bundle1 := ca1.Bundle()
+	ca1 := test.NewPQCA(t, td)
+	bundle1 := spiffebundle.FromX509Bundle(ca1.X509Bundle())
 	bundle1.SetRefreshHint(time.Second)
-	ca2 := test.NewCA(t, td)
-	bundle2 := ca2.Bundle()
+	ca2 := test.NewPQCA(t, td)
+	bundle2 := spiffebundle.FromX509Bundle(ca2.X509Bundle())
 	bundle2.SetRefreshHint(2 * time.Second)
 	bundles := []*spiffebundle.Bundle{bundle1, bundle2}
 
 	be := fakebundleendpoint.New(t, fakebundleendpoint.WithTestBundles(bundle1, bundle2))
 	defer be.Shutdown()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	watcher = &fakewatcher{
 		t:               t,
 		nextRefresh:     time.Second,

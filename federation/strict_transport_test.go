@@ -10,8 +10,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/federation"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
+	"github.com/spiffe/go-spiffe/v2/internal/test/fakebundleendpoint"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,8 +39,8 @@ func TestStrictPQFederationTransport(t *testing.T) {
 			if pq {
 				roots, cert = test.CreatePQWebCredentials(t)
 			}
-			// Transport authentication is distinct from step-5 payload admission.
-			bundle := test.NewCA(t, td).Bundle()
+			// Both the transport and the serialized authority now meet the profile.
+			bundle := spiffebundle.FromX509Bundle(test.NewPQCA(t, td).X509Bundle())
 			payload, err := bundle.Marshal()
 			require.NoError(t, err)
 			var requests atomic.Int32
@@ -58,6 +60,23 @@ func TestStrictPQFederationTransport(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStrictPQFederationPayloadAdmission(t *testing.T) {
+	mixed := test.NewPQCA(t, td).Bundle() // includes classical JWT trust, which must be discarded
+	server := fakebundleendpoint.New(t, fakebundleendpoint.WithTestBundles(mixed))
+	defer server.Shutdown()
+	got, err := federation.FetchBundle(context.Background(), td, server.FetchBundleURL(), federation.WithWebPKIRoots(server.RootCAs()))
+	require.NoError(t, err)
+	require.True(t, mixed.X509Bundle().Equal(got.X509Bundle()))
+	require.Empty(t, got.JWTAuthorities())
+	require.Empty(t, got.WITAuthorities())
+	classical := test.NewCA(t, td).Bundle()
+	bad := fakebundleendpoint.New(t, fakebundleendpoint.WithTestBundles(classical))
+	defer bad.Shutdown()
+	got, err = federation.FetchBundle(context.Background(), td, bad.FetchBundleURL(), federation.WithWebPKIRoots(bad.RootCAs()))
+	require.ErrorContains(t, err, "classical X.509 authority")
+	require.Nil(t, got)
 }
 
 func TestStrictPQFederationRejectsPlaintextAndRedirects(t *testing.T) {

@@ -45,7 +45,7 @@ func MarshalX509Authority(cert *x509.Certificate) ([]byte, error) {
 // Per X509-SVID section 6.2, only the first x5c certificate is used. Successful
 // decoding is NOT authentication of the bundle or its claimed trust domain.
 func ParseX509Authority(data []byte) (*x509.Certificate, error) {
-	fields, err := object(data)
+	fields, err := ParseObject(data)
 	if err != nil {
 		return nil, err
 	}
@@ -73,12 +73,16 @@ func ParseX509Authority(data []byte) (*x509.Certificate, error) {
 	if err != nil || base64.RawURLEncoding.EncodeToString(pub) != encoded || len(pub) != mldsa.MLDSA65().PublicKeySize() {
 		return nil, invalid("invalid ML-DSA-65 public key encoding")
 	}
-	var chain []string
+	var chain []json.RawMessage
 	if err := json.Unmarshal(fields["x5c"], &chain); err != nil || len(chain) == 0 {
 		return nil, invalid("x5c must contain a certificate")
 	}
-	der, err := base64.StdEncoding.Strict().DecodeString(chain[0])
-	if err != nil || base64.StdEncoding.EncodeToString(der) != chain[0] {
+	var first string
+	if err := json.Unmarshal(chain[0], &first); err != nil {
+		return nil, invalid("invalid x5c encoding")
+	}
+	der, err := base64.StdEncoding.Strict().DecodeString(first)
+	if err != nil || base64.StdEncoding.EncodeToString(der) != first {
 		return nil, invalid("invalid x5c encoding")
 	}
 	cert, err := parseAuthority(der)
@@ -136,9 +140,10 @@ func stringField(fields map[string]json.RawMessage, name string) (string, error)
 	return value, nil
 }
 
-// object rejects duplicate decoded member names, including escaped aliases,
-// rather than accepting encoding/json's last-value-wins interpretation.
-func object(data []byte) (map[string]json.RawMessage, error) {
+// ParseObject rejects duplicate decoded member names, including escaped aliases,
+// rather than accepting encoding/json's last-value-wins interpretation. It is
+// shared with the enclosing bundle reader; nested objects are decoded separately.
+func ParseObject(data []byte) (map[string]json.RawMessage, error) {
 	if !utf8.Valid(data) {
 		return nil, invalid("invalid UTF-8")
 	}

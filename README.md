@@ -16,8 +16,10 @@ enforcement](docs/STRICT_TLS_STATUS.md) now uses owned configurations and
 connections. Constructors return `*tlsconfig.Config`, not mutable `*tls.Config`;
 legacy hook/certificate-only authentication APIs fail explicitly. See the linked
 migration guide before upgrading. Token APIs still exist; JWT-SVID/WIT must not
-be used as PQ authentication. Bundle interoperability, real deployment,
-lifecycle, token rejection, and independent review remain open. The complete
+be used as PQ authentication. [ML-DSA bundle encoding and strict X.509
+admission](docs/PQ_BUNDLE_FORMAT.md) now include an independently implemented
+format round trip. Real deployment, lifecycle, token rejection, independent TLS
+interoperability, and independent review remain open. The complete
 workspace roadmap is `../docs/IMPLEMENTATION_PLAN.md` (outside this Go module).
 
 ## Documentation

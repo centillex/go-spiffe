@@ -58,8 +58,9 @@ var (
 			err:      "spiffebundle: no authorities found",
 		},
 		{
-			filePath: "testdata/spiffebundle_multiple_x509.json",
-			err:      "spiffebundle: expected a single certificate in x509-svid entry 0; got 2",
+			filePath:  "testdata/spiffebundle_multiple_x509.json",
+			keysCount: 1,
+			// X509-SVID section 6.2: consume only the first certificate.
 		},
 		{
 			filePath:       "testdata/spiffebundle_valid_with_wit.json",

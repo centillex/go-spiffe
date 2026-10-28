@@ -3,6 +3,8 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+permissions:
+  contents: read
 env:
   GOTOOLCHAIN: local
 jobs:
@@ -39,6 +41,19 @@ jobs:
         run: test "$(go env GOVERSION)" = "go1.27.3"
       - name: Verify Linux baseline
         run: bash scripts/verify-go-baseline.sh .build/baseline
+      - name: Setup Node for independent bundle interoperability
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.20.0'
+      - name: Verify independent bundle encoding
+        run: bash scripts/pqbundle-interop/run.sh .build/pqbundle-interop
+      - name: Upload independent bundle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pqbundle-format-interop
+          path: .build/pqbundle-interop
+          if-no-files-found: error
       - name: Upload baseline evidence
         if: always()
         uses: actions/upload-artifact@v4
