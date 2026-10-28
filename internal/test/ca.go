@@ -142,9 +142,10 @@ func (ca *CA) JWTBundle() *jwtbundle.Bundle {
 func CreateCACertificate(tb testing.TB, parent *x509.Certificate, parentKey crypto.Signer, options ...SVIDOption) (*x509.Certificate, crypto.Signer) {
 	now := time.Now()
 	serial := NewSerial(tb)
-	key := NewEC256Key(tb)
+	key := newX509Key(tb, parentKey)
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
+		KeyUsage:     x509.KeyUsageCertSign,
 		Subject: pkix.Name{
 			CommonName: fmt.Sprintf("CA %x", serial),
 		},
@@ -166,7 +167,7 @@ func CreateCACertificate(tb testing.TB, parent *x509.Certificate, parentKey cryp
 func CreateX509Certificate(tb testing.TB, parent *x509.Certificate, parentKey crypto.Signer, options ...SVIDOption) (*x509.Certificate, crypto.Signer) {
 	now := time.Now()
 	serial := NewSerial(tb)
-	key := NewEC256Key(tb)
+	key := newX509Key(tb, parentKey)
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
@@ -261,6 +262,14 @@ func WithKeyUsage(keyUsage x509.KeyUsage) SVIDOption {
 			c.KeyUsage = keyUsage
 		},
 	}
+}
+
+func WithIsCA(isCA bool) SVIDOption {
+	return SVIDOption{certificateOption: func(c *x509.Certificate) { c.IsCA = isCA; c.BasicConstraintsValid = true }}
+}
+
+func WithExtKeyUsage(usages ...x509.ExtKeyUsage) SVIDOption {
+	return SVIDOption{certificateOption: func(c *x509.Certificate) { c.ExtKeyUsage = usages }}
 }
 
 func WithLifetime(notBefore, notAfter time.Time) SVIDOption {

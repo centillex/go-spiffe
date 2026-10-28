@@ -32,34 +32,38 @@ func TestFetchBundle_WebPKIRoots(t *testing.T) {
 
 func TestFetchBundle_SPIFFEAuth(t *testing.T) {
 	id := spiffeid.RequireFromPath(td, "/control-plane/test-bundle-endpoint")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	svid := ca.CreateX509SVID(id, test.WithIPAddresses(localhostIPs...))
-	bundle := ca.Bundle()
+	// Payload serialization remains a separate step-5 concern; use a distinct
+	// classical payload fixture while authenticating this transport with PQ.
+	bundle := test.NewCA(t, td).Bundle()
 
 	be := fakebundleendpoint.New(t,
 		fakebundleendpoint.WithTestBundles(bundle),
-		fakebundleendpoint.WithSPIFFEAuth(bundle, svid))
+		fakebundleendpoint.WithSPIFFEAuth(ca.Bundle(), svid))
 	defer be.Shutdown()
 
 	fetchedBundle, err := federation.FetchBundle(context.Background(), td, be.FetchBundleURL(),
-		federation.WithSPIFFEAuth(bundle, id))
+		federation.WithSPIFFEAuth(ca.X509Bundle(), id))
 	assert.NoError(t, err)
 	assert.Equal(t, fetchedBundle, bundle)
 }
 
 func TestFetchBundle_SPIFFEAuth_UnexpectedID(t *testing.T) {
 	id := spiffeid.RequireFromPath(td, "/control-plane/test-bundle-endpoint")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	svid := ca.CreateX509SVID(id, test.WithIPAddresses(localhostIPs...))
-	bundle := ca.Bundle()
+	// Payload serialization remains a separate step-5 concern; use a distinct
+	// classical payload fixture while authenticating this transport with PQ.
+	bundle := test.NewCA(t, td).Bundle()
 
 	be := fakebundleendpoint.New(t,
 		fakebundleendpoint.WithTestBundles(bundle),
-		fakebundleendpoint.WithSPIFFEAuth(bundle, svid))
+		fakebundleendpoint.WithSPIFFEAuth(ca.Bundle(), svid))
 	defer be.Shutdown()
 
 	fetchedBundle, err := federation.FetchBundle(context.Background(), td, be.FetchBundleURL(),
-		federation.WithSPIFFEAuth(bundle, spiffeid.RequireFromPath(td, "/other/id")))
+		federation.WithSPIFFEAuth(ca.X509Bundle(), spiffeid.RequireFromPath(td, "/other/id")))
 	assert.Regexp(t, `federation: could not GET bundle: Get "?`+be.FetchBundleURL()+`"?: unexpected ID "spiffe://domain.test/control-plane/test-bundle-endpoint"`, err.Error())
 	assert.Nil(t, fetchedBundle)
 }

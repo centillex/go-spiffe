@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/internal/pqpolicy"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
@@ -18,39 +19,39 @@ import (
 // TLSClientCredentials returns TLS credentials which verify and authorize
 // the server X509-SVID.
 func TLSClientCredentials(bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.TLSClientConfig(bundle, authorizer, opts...)), expectPeerID: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.TLSClientConfig(bundle, authorizer, opts...)), expectPeerID: true}
 }
 
 // MTLSClientCredentials returns TLS credentials which present an X509-SVID
 // to the server and verifies and authorizes the server X509-SVID.
 func MTLSClientCredentials(svid x509svid.Source, bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSClientConfig(svid, bundle, authorizer, opts...)), expectPeerID: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSClientConfig(svid, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
 }
 
 // MTLSWebClientCredentials returns TLS credentials which present an X509-SVID
 // to the server and verifies the server certificate using provided roots (or
 // the system roots if nil).
 func MTLSWebClientCredentials(svid x509svid.Source, roots *x509.CertPool, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSWebClientConfig(svid, roots, opts...)), expectPeerID: false}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSWebClientConfig(svid, roots, opts...)), expectPeerID: false, requireMutual: true}
 }
 
 // TLSServerCredentials returns TLS credentials which present an X509-SVID
 // to the client and does not require or verify client certificates.
 func TLSServerCredentials(svid x509svid.Source, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.TLSServerConfig(svid, opts...)), expectPeerID: false}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.TLSServerConfig(svid, opts...)), expectPeerID: false}
 }
 
 // MTLSServerCredentials returns TLS credentials which present an X509-SVID
 // to the client and requires, verifies, and authorizes client X509-SVIDs.
 func MTLSServerCredentials(svid x509svid.Source, bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSServerConfig(svid, bundle, authorizer, opts...)), expectPeerID: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSServerConfig(svid, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
 }
 
 // MTLSWebServerCredentials returns TLS credentials which present a web
 // server certificate to the client and requires, verifies, and authorizes
 // client X509-SVIDs.
 func MTLSWebServerCredentials(cert *tls.Certificate, bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSWebServerConfig(cert, bundle, authorizer, opts...)), expectPeerID: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSWebServerConfig(cert, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
 }
 
 // PeerIDFromContext returns the SPIFFE ID from the peer information on the
@@ -76,8 +77,9 @@ func PeerIDFromPeer(p *peer.Peer) (spiffeid.ID, bool) {
 }
 
 type credentialsWrapper struct {
-	c            credentials.TransportCredentials
-	expectPeerID bool
+	c             credentials.TransportCredentials
+	expectPeerID  bool
+	requireMutual bool
 }
 
 func (w credentialsWrapper) ClientHandshake(ctx context.Context, authority string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -92,8 +94,23 @@ func (w credentialsWrapper) wrapHandshake(conn net.Conn, authInfo credentials.Au
 	if handshakeErr != nil {
 		return nil, nil, handshakeErr
 	}
+	tlsInfo, ok := authInfo.(credentials.TLSInfo)
+	if !ok {
+		conn.Close()
+		return nil, nil, fmt.Errorf("expected TLS authentication information")
+	}
+	if w.requireMutual {
+		if err := pqpolicy.CheckMutualTLS(tlsInfo.State); err != nil {
+			conn.Close()
+			return nil, nil, err
+		}
+	}
 	var peerID spiffeid.ID
-	if tlsInfo, ok := authInfo.(credentials.TLSInfo); ok && w.expectPeerID {
+	if w.expectPeerID {
+		if tlsInfo.SPIFFEID == nil {
+			conn.Close()
+			return nil, nil, fmt.Errorf("missing peer SPIFFE ID")
+		}
 		var err error
 		peerID, err = spiffeid.FromString(tlsInfo.SPIFFEID.String())
 		if err != nil {
@@ -110,8 +127,9 @@ func (w credentialsWrapper) Info() credentials.ProtocolInfo {
 
 func (w credentialsWrapper) Clone() credentials.TransportCredentials {
 	return credentialsWrapper{
-		c:            w.c.Clone(),
-		expectPeerID: w.expectPeerID,
+		c:             w.c.Clone(),
+		expectPeerID:  w.expectPeerID,
+		requireMutual: w.requireMutual,
 	}
 }
 

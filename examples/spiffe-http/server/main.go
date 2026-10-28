@@ -43,15 +43,14 @@ func run(ctx context.Context) error {
 	// Allowed SPIFFE ID
 	clientID := spiffeid.RequireFromString("spiffe://example.org/client")
 
-	// Create a `tls.Config` to allow mTLS connections, and verify that presented certificate has SPIFFE ID `spiffe://example.org/client`
+	// Create a owned TLS configuration to allow mTLS connections, and verify that presented certificate has SPIFFE ID `spiffe://example.org/client`
 	tlsConfig := tlsconfig.MTLSServerConfig(source, source, tlsconfig.AuthorizeID(clientID))
 	server := &http.Server{
 		Addr:              ":8443",
-		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: time.Second * 10,
 	}
 
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	if err := tlsConfig.ListenAndServe(server); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil

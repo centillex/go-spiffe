@@ -74,10 +74,10 @@ func run(ctx context.Context) error {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: tlsconfig.TLSClientConfig(
+			DialTLSContext: tlsconfig.TLSClientConfig(
 				x509Source,
 				tlsconfig.AuthorizeID(serverID),
-			),
+			).DialContext,
 		},
 	}
 	res, err := client.Do(req)

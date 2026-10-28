@@ -5,25 +5,18 @@ import (
 	"crypto/x509"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/internal/pqpolicy"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 )
-
-// TLSClientConfig returns a TLS configuration which verifies and authorizes
-// the server X509-SVID.
-func TLSClientConfig(bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *tls.Config {
-	config := newTLSConfig()
-	HookTLSClientConfig(config, bundle, authorizer, opts...)
-	return config
-}
 
 // HookTLSClientConfig sets up the TLS configuration to verify and authorize
 // the server X509-SVID. If there is an existing callback set for
 // VerifyPeerCertificate it will be wrapped by this package and invoked
 // after SPIFFE authentication has completed.
-func HookTLSClientConfig(config *tls.Config, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) {
+func hookTLSClientConfig(config *tls.Config, bundle x509bundle.Source, authorizer Authorizer) {
 	resetAuthFields(config)
-	config.InsecureSkipVerify = true
-	config.VerifyPeerCertificate = WrapVerifyPeerCertificate(config.VerifyPeerCertificate, bundle, authorizer, opts...) //nolint:gosec // G123: VerifyConnection migration handled in a follow-up
+	config.InsecureSkipVerify = true // SPIFFE authentication is enforced by VerifyConnection.
+	installConnectionPolicy(config, bundle, authorizer, x509.ExtKeyUsageServerAuth, false, false, false)
 }
 
 // A Option changes the defaults used to by mTLS ClientConfig functions.
@@ -37,6 +30,7 @@ func (fn option) apply(o *options) { fn(o) }
 
 type options struct {
 	trace Trace
+	base  *tls.Config
 }
 
 func newOptions(opts []Option) *options {
@@ -55,64 +49,33 @@ func WithTrace(trace Trace) Option {
 	})
 }
 
-// MTLSClientConfig returns a TLS configuration which presents an X509-SVID
-// to the server and verifies and authorizes the server X509-SVID.
-func MTLSClientConfig(svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *tls.Config {
-	config := newTLSConfig()
-	HookMTLSClientConfig(config, svid, bundle, authorizer, opts...)
-	return config
-}
-
 // HookMTLSClientConfig sets up the TLS configuration to present an X509-SVID
 // to the server and verify and authorize the server X509-SVID. If there is an
 // existing callback set for VerifyPeerCertificate it will be wrapped by
 // this package and invoked after SPIFFE authentication has completed.
-func HookMTLSClientConfig(config *tls.Config, svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) {
+func hookMTLSClientConfig(config *tls.Config, svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) {
 	resetAuthFields(config)
 	config.GetClientCertificate = GetClientCertificate(svid, opts...)
-	config.InsecureSkipVerify = true
-	config.VerifyPeerCertificate = WrapVerifyPeerCertificate(config.VerifyPeerCertificate, bundle, authorizer, opts...) //nolint:gosec // G123: VerifyConnection migration handled in a follow-up
-}
-
-// MTLSWebClientConfig returns a TLS configuration which presents an X509-SVID
-// to the server and verifies the server certificate using provided roots (or
-// the system roots if nil).
-func MTLSWebClientConfig(svid x509svid.Source, roots *x509.CertPool, opts ...Option) *tls.Config {
-	config := newTLSConfig()
-	HookMTLSWebClientConfig(config, svid, roots, opts...)
-	return config
+	config.InsecureSkipVerify = true // SPIFFE authentication is enforced by VerifyConnection.
+	installConnectionPolicy(config, bundle, authorizer, x509.ExtKeyUsageServerAuth, true, false, false)
 }
 
 // HookMTLSWebClientConfig sets up the TLS configuration to present an
 // X509-SVID to the server and verifies the server certificate using the
 // provided roots (or the system roots if nil).
-func HookMTLSWebClientConfig(config *tls.Config, svid x509svid.Source, roots *x509.CertPool, opts ...Option) {
+func hookMTLSWebClientConfig(config *tls.Config, svid x509svid.Source, roots *x509.CertPool, opts ...Option) {
 	resetAuthFields(config)
 	config.GetClientCertificate = GetClientCertificate(svid, opts...)
 	config.RootCAs = roots
-}
-
-// TLSServerConfig returns a TLS configuration which presents an X509-SVID
-// to the client and does not require or verify client certificates.
-func TLSServerConfig(svid x509svid.Source, opts ...Option) *tls.Config {
-	config := newTLSConfig()
-	HookTLSServerConfig(config, svid, opts...)
-	return config
+	installConnectionPolicy(config, nil, nil, x509.ExtKeyUsageServerAuth, true, true, false)
 }
 
 // HookTLSServerConfig sets up the TLS configuration to present an X509-SVID
 // to the client and to not require or verify client certificates.
-func HookTLSServerConfig(config *tls.Config, svid x509svid.Source, opts ...Option) {
+func hookTLSServerConfig(config *tls.Config, svid x509svid.Source, opts ...Option) {
 	resetAuthFields(config)
 	config.GetCertificate = GetCertificate(svid, opts...)
-}
-
-// MTLSServerConfig returns a TLS configuration which presents an X509-SVID
-// to the client and requires, verifies, and authorizes client X509-SVIDs.
-func MTLSServerConfig(svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *tls.Config {
-	config := newTLSConfig()
-	HookMTLSServerConfig(config, svid, bundle, authorizer, opts...)
-	return config
+	installConnectionPolicy(config, nil, nil, x509.ExtKeyUsageClientAuth, true, false, true)
 }
 
 // HookMTLSServerConfig sets up the TLS configuration to present an X509-SVID
@@ -120,20 +83,11 @@ func MTLSServerConfig(svid x509svid.Source, bundle x509bundle.Source, authorizer
 // there is an existing callback set for VerifyPeerCertificate it will be
 // wrapped by this package and invoked after SPIFFE authentication has
 // completed.
-func HookMTLSServerConfig(config *tls.Config, svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) {
+func hookMTLSServerConfig(config *tls.Config, svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) {
 	resetAuthFields(config)
 	config.ClientAuth = tls.RequireAnyClientCert
 	config.GetCertificate = GetCertificate(svid, opts...)
-	config.VerifyPeerCertificate = WrapVerifyPeerCertificate(config.VerifyPeerCertificate, bundle, authorizer, opts...) //nolint:gosec // G123: VerifyConnection migration handled in a follow-up
-}
-
-// MTLSWebServerConfig returns a TLS configuration which presents a web
-// server certificate to the client and requires, verifies, and authorizes
-// client X509-SVIDs.
-func MTLSWebServerConfig(cert *tls.Certificate, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *tls.Config {
-	config := newTLSConfig()
-	HookMTLSWebServerConfig(config, cert, bundle, authorizer, opts...)
-	return config
+	installConnectionPolicy(config, bundle, authorizer, x509.ExtKeyUsageClientAuth, true, false, false)
 }
 
 // HookMTLSWebServerConfig sets up the TLS configuration to presents a web
@@ -141,11 +95,20 @@ func MTLSWebServerConfig(cert *tls.Certificate, bundle x509bundle.Source, author
 // X509-SVIDs. If there is an existing callback set for VerifyPeerCertificate
 // it will be wrapped by this package and invoked after SPIFFE
 // authentication has completed.
-func HookMTLSWebServerConfig(config *tls.Config, cert *tls.Certificate, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) {
+func hookMTLSWebServerConfig(config *tls.Config, cert *tls.Certificate, bundle x509bundle.Source, authorizer Authorizer) {
 	resetAuthFields(config)
 	config.ClientAuth = tls.RequireAnyClientCert
-	config.Certificates = []tls.Certificate{*cert}
-	config.VerifyPeerCertificate = WrapVerifyPeerCertificate(config.VerifyPeerCertificate, bundle, authorizer, opts...) //nolint:gosec // G123: VerifyConnection migration handled in a follow-up
+	config.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if cert == nil {
+			return nil, profileError("nil Web PKI credential")
+		}
+		copy := *cert
+		if err := validateLocalKey(&copy); err != nil {
+			return nil, err
+		}
+		return &copy, nil
+	}
+	installConnectionPolicy(config, bundle, authorizer, x509.ExtKeyUsageClientAuth, true, false, false)
 }
 
 // GetCertificate returns a GetCertificate callback for tls.Config. It uses the
@@ -153,7 +116,12 @@ func HookMTLSWebServerConfig(config *tls.Config, cert *tls.Certificate, bundle x
 func GetCertificate(svid x509svid.Source, opts ...Option) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	opt := newOptions(opts)
 	return func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-		return getTLSCertificate(svid, opt.trace)
+		cert, err := getTLSCertificate(svid, opt.trace)
+		if err != nil {
+			return nil, err
+		}
+		_, err = checkPresentedChain(cert.Certificate, x509.ExtKeyUsageServerAuth)
+		return cert, err
 	}
 }
 
@@ -163,44 +131,12 @@ func GetCertificate(svid x509svid.Source, opts ...Option) func(*tls.ClientHelloI
 func GetClientCertificate(svid x509svid.Source, opts ...Option) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	opt := newOptions(opts)
 	return func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-		return getTLSCertificate(svid, opt.trace)
-	}
-}
-
-// VerifyPeerCertificate returns a VerifyPeerCertificate callback for
-// tls.Config. It uses the given bundle source and authorizer to verify and
-// authorize X509-SVIDs provided by peers during the TLS handshake.
-func VerifyPeerCertificate(bundle x509bundle.Source, authorizer Authorizer, opts ...Option) func([][]byte, [][]*x509.Certificate) error {
-	return func(raw [][]byte, _ [][]*x509.Certificate) error {
-		id, certs, err := x509svid.ParseAndVerify(raw, bundle)
+		cert, err := getTLSCertificate(svid, opt.trace)
 		if err != nil {
-			return err
+			return nil, err
 		}
-
-		return authorizer(id, certs)
-	}
-}
-
-// WrapVerifyPeerCertificate wraps a VerifyPeerCertificate callback, performing
-// SPIFFE authentication against the peer certificates using the given bundle and
-// authorizer. The wrapped callback will be passed the verified chains.
-// Note: TLS clients must set `InsecureSkipVerify` when doing SPIFFE authentication to disable hostname verification.
-func WrapVerifyPeerCertificate(wrapped func([][]byte, [][]*x509.Certificate) error, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) func([][]byte, [][]*x509.Certificate) error {
-	if wrapped == nil {
-		return VerifyPeerCertificate(bundle, authorizer, opts...)
-	}
-
-	return func(raw [][]byte, _ [][]*x509.Certificate) error {
-		id, certs, err := x509svid.ParseAndVerify(raw, bundle)
-		if err != nil {
-			return err
-		}
-
-		if err := authorizer(id, certs); err != nil {
-			return err
-		}
-
-		return wrapped(raw, certs)
+		_, err = checkPresentedChain(cert.Certificate, x509.ExtKeyUsageClientAuth)
+		return cert, err
 	}
 }
 
@@ -210,6 +146,9 @@ func getTLSCertificate(svid x509svid.Source, trace Trace) (*tls.Certificate, err
 		traceVal = trace.GetCertificate(GetCertificateInfo{})
 	}
 
+	if svid == nil {
+		return nil, profileError("SVID source is required")
+	}
 	s, err := svid.GetX509SVID()
 	if err != nil {
 		if trace.GotCertificate != nil {
@@ -218,6 +157,9 @@ func getTLSCertificate(svid x509svid.Source, trace Trace) (*tls.Certificate, err
 		return nil, err
 	}
 
+	if s == nil || len(s.Certificates) == 0 {
+		return nil, profileError("empty SVID")
+	}
 	cert := &tls.Certificate{
 		Certificate: make([][]byte, 0, len(s.Certificates)),
 		PrivateKey:  s.PrivateKey,
@@ -225,25 +167,44 @@ func getTLSCertificate(svid x509svid.Source, trace Trace) (*tls.Certificate, err
 	}
 
 	for _, svidCert := range s.Certificates {
-		cert.Certificate = append(cert.Certificate, svidCert.Raw)
+		if svidCert == nil {
+			return nil, profileError("nil SVID certificate")
+		}
+		cert.Certificate = append(cert.Certificate, append([]byte(nil), svidCert.Raw...))
 	}
 
+	if err := validateLocalKey(cert); err != nil {
+		return nil, err
+	}
+	id, err := x509svid.IDFromCert(cert.Leaf)
+	if err != nil || id != s.ID || id.Path() == "" {
+		return nil, profileError("local SVID identity mismatch")
+	}
 	if trace.GotCertificate != nil {
-		trace.GotCertificate(GotCertificateInfo{Cert: cert}, traceVal)
+		// Tracing is observational: do not expose signing material or mutable
+		// handshake certificate slices to the callback.
+		observed := snapshotCertificate(*cert)
+		observed.PrivateKey = nil
+		observed.Leaf, _ = x509.ParseCertificate(observed.Certificate[0])
+		trace.GotCertificate(GotCertificateInfo{Cert: &observed}, traceVal)
 	}
 
 	return cert, nil
 }
 
-func newTLSConfig() *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
-}
-
 func resetAuthFields(config *tls.Config) {
-	if config.MinVersion < tls.VersionTLS12 {
-		config.MinVersion = tls.VersionTLS12
+	config.MinVersion = tls.VersionTLS13
+	config.MaxVersion = tls.VersionTLS13
+	config.CurvePreferences = pqpolicy.KeyExchangeGroups()
+	config.SessionTicketsDisabled = true
+	config.ClientSessionCache = nil
+	config.WrapSession = nil
+	config.UnwrapSession = nil
+	config.Rand = nil //nolint:staticcheck // never use caller-selected production randomness
+	if config.GetConfigForClient != nil {
+		config.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			return nil, profileError("GetConfigForClient overrides are unsupported")
+		}
 	}
 	config.Certificates = nil
 	config.ClientAuth = tls.NoClientCert

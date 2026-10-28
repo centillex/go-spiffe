@@ -14,7 +14,7 @@ func PublicKeyEqual(a, b crypto.PublicKey) (bool, error) {
 	switch a := a.(type) {
 	case *mldsa.PublicKey:
 		other, ok := b.(*mldsa.PublicKey)
-		return ok && a != nil && other != nil && a.Equal(other), nil
+		return ok && validMLDSAPublicKey(a) && validMLDSAPublicKey(other) && a.Equal(other), nil
 	case *rsa.PublicKey:
 		rsaPublicKey, ok := b.(*rsa.PublicKey)
 		return ok && RSAPublicKeyEqual(a, rsaPublicKey), nil
@@ -27,6 +27,19 @@ func PublicKeyEqual(a, b crypto.PublicKey) (bool, error) {
 	default:
 		return false, fmt.Errorf("unsupported public key type %T", a)
 	}
+}
+
+// Native keys have unexported fields, so only constructors and the zero value
+// can produce them. Reject the zero value before Equal or Parameters: the former
+// considers two zero keys equal and the latter panics on an uninitialized key.
+func validMLDSAPublicKey(key *mldsa.PublicKey) bool {
+	if key == nil {
+		return false
+	}
+	size := len(key.Bytes())
+	return size == mldsa.MLDSA44().PublicKeySize() ||
+		size == mldsa.MLDSA65().PublicKeySize() ||
+		size == mldsa.MLDSA87().PublicKeySize()
 }
 
 func RSAPublicKeyEqual(a, b *rsa.PublicKey) bool {

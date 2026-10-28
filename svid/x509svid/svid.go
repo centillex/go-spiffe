@@ -13,6 +13,7 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/internal/cryptoutil"
 	"github.com/spiffe/go-spiffe/v2/internal/pemutil"
+	"github.com/spiffe/go-spiffe/v2/internal/pqpolicy"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
@@ -79,7 +80,7 @@ func ParseRaw(certBytes, keyBytes []byte) (*SVID, error) {
 		return nil, wrapX509svidErr(fmt.Errorf("cannot parse DER encoded certificate: %v", err))
 	}
 
-	privateKey, err := x509.ParsePKCS8PrivateKey(keyBytes)
+	privateKey, err := pemutil.ParsePKCS8PrivateKey(keyBytes)
 	if err != nil {
 		return nil, wrapX509svidErr(fmt.Errorf("cannot parse DER encoded private key: %v", err))
 	}
@@ -90,8 +91,8 @@ func ParseRaw(certBytes, keyBytes []byte) (*SVID, error) {
 // Marshal marshals the X509-SVID and returns PEM encoded blocks for the SVID
 // and private key.
 func (s *SVID) Marshal() ([]byte, []byte, error) {
-	if len(s.Certificates) == 0 {
-		return nil, nil, wrapX509svidErr(errors.New("no certificates to marshal"))
+	if err := s.validateForMarshal(); err != nil {
+		return nil, nil, wrapX509svidErr(fmt.Errorf("cannot encode private key or certificates: %w", err))
 	}
 	certBytes := pemutil.EncodeCertificates(s.Certificates)
 	keyBytes, err := pemutil.EncodePKCS8PrivateKey(s.PrivateKey)
@@ -106,17 +107,38 @@ func (s *SVID) Marshal() ([]byte, []byte, error) {
 // (concatenated with no intermediate padding) and PKCS8 ASN1.DER for the
 // private key.
 func (s *SVID) MarshalRaw() ([]byte, []byte, error) {
+	if err := s.validateForMarshal(); err != nil {
+		return nil, nil, wrapX509svidErr(fmt.Errorf("cannot marshal private key or certificates: %w", err))
+	}
 	key, err := x509.MarshalPKCS8PrivateKey(s.PrivateKey)
 	if err != nil {
 		return nil, nil, wrapX509svidErr(fmt.Errorf("cannot marshal private key: %v", err))
 	}
 
-	if len(s.Certificates) == 0 {
-		return nil, nil, wrapX509svidErr(errors.New("no certificates to marshal"))
-	}
-
 	certs := x509util.ConcatRawCertsFromCerts(s.Certificates)
 	return certs, key, nil
+}
+
+// validateForMarshal rejects malformed manually constructed SVIDs before calling
+// encoders that assume non-nil certificates and initialized keys. It is not
+// certificate-path, validity, or trust verification.
+func (s *SVID) validateForMarshal() error {
+	if s == nil {
+		return errors.New("nil SVID")
+	}
+	if len(s.Certificates) == 0 {
+		return errors.New("no certificates to marshal")
+	}
+	for _, cert := range s.Certificates {
+		if cert == nil || len(cert.Raw) == 0 {
+			return errors.New("nil or unencoded certificate")
+		}
+	}
+	if _, err := validateCertificates(s.Certificates); err != nil {
+		return err
+	}
+	_, err := validatePrivateKey(s.PrivateKey, s.Certificates[0])
+	return err
 }
 
 // GetX509SVID returns the X509-SVID. It implements the Source interface.
@@ -152,6 +174,14 @@ func validateCertificates(certificates []*x509.Certificate) (*spiffeid.ID, error
 	for _, cert := range certificates {
 		if cert == nil {
 			return nil, errors.New("nil certificate")
+		}
+		// Loader admission is deliberately narrower than key equality support.
+		// Full strict-profile path/signature enforcement remains separate work.
+		if key, ok := cert.PublicKey.(*mldsa.PublicKey); ok {
+			valid, _ := cryptoutil.PublicKeyEqual(key, key)
+			if !valid || !pqpolicy.AllowsAuthenticationAlgorithm(key.Parameters().String()) {
+				return nil, fmt.Errorf("%s: unsupported ML-DSA certificate key", pqpolicy.ID)
+			}
 		}
 	}
 
@@ -215,6 +245,9 @@ func validateKeyUsage(leaf *x509.Certificate) error {
 }
 
 func validatePrivateKey(privateKey crypto.PrivateKey, leaf *x509.Certificate) (crypto.Signer, error) {
+	if leaf == nil {
+		return nil, errors.New("nil leaf certificate")
+	}
 	if privateKey == nil {
 		return nil, errors.New("no private key found")
 	}
@@ -241,7 +274,11 @@ func keyMatches(privateKey crypto.PrivateKey, publicKey crypto.PublicKey) (bool,
 		if privateKey == nil {
 			return false, errors.New("nil ML-DSA private key")
 		}
-		return cryptoutil.PublicKeyEqual(privateKey.Public(), publicKey)
+		public := privateKey.PublicKey()
+		if valid, _ := cryptoutil.PublicKeyEqual(public, public); !valid {
+			return false, errors.New("uninitialized ML-DSA private key")
+		}
+		return cryptoutil.PublicKeyEqual(public, publicKey)
 	case *rsa.PrivateKey:
 		if privateKey == nil {
 			return false, errors.New("nil RSA private key")

@@ -1,4 +1,4 @@
-package tlsconfig_test
+package tlsconfig
 
 import (
 	"bytes"
@@ -14,18 +14,17 @@ import (
 	"github.com/spiffe/go-spiffe/v2/internal/test"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
-	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-var localTrace = tlsconfig.Trace{
-	GetCertificate: func(tlsconfig.GetCertificateInfo) any {
+var localTrace = Trace{
+	GetCertificate: func(GetCertificateInfo) any {
 		fmt.Printf("got start of GetTLSCertificate\n")
 		return nil
 	},
-	GotCertificate: func(tlsconfig.GotCertificateInfo, any) {
+	GotCertificate: func(GotCertificateInfo, any) {
 		fmt.Printf("got end of GetTLSCertificate\n")
 	},
 }
@@ -34,7 +33,7 @@ func TestTLSClientConfig(t *testing.T) {
 	trustDomain := spiffeid.RequireTrustDomainFromString("trustdomain")
 	bundle := x509bundle.New(trustDomain)
 
-	config := tlsconfig.TLSClientConfig(bundle, tlsconfig.AuthorizeAny())
+	config := nativeTLSClientConfig(bundle, AuthorizeAny())
 
 	assert.Nil(t, config.Certificates)
 	assert.Equal(t, tls.NoClientCert, config.ClientAuth)
@@ -43,7 +42,7 @@ func TestTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookTLSClientConfig(t *testing.T) {
@@ -52,7 +51,7 @@ func TestHookTLSClientConfig(t *testing.T) {
 	base := createBaseTLSConfig()
 	config := createTestTLSConfig(base)
 
-	tlsconfig.HookTLSClientConfig(config, bundle, tlsconfig.AuthorizeAny())
+	hookTLSClientConfig(config, bundle, AuthorizeAny())
 
 	assert.Nil(t, config.Certificates)
 	assert.Equal(t, tls.NoClientCert, config.ClientAuth)
@@ -61,7 +60,7 @@ func TestHookTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -70,8 +69,8 @@ func TestMTLSClientConfig(t *testing.T) {
 	bundle := x509bundle.New(trustDomain)
 	svid := &x509svid.SVID{}
 
-	config := tlsconfig.MTLSClientConfig(svid, bundle, tlsconfig.AuthorizeAny(),
-		tlsconfig.WithTrace(localTrace),
+	config := nativeMTLSClientConfig(svid, bundle, AuthorizeAny(),
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -81,7 +80,7 @@ func TestMTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookMTLSClientConfig(t *testing.T) {
@@ -91,8 +90,8 @@ func TestHookMTLSClientConfig(t *testing.T) {
 	base := createBaseTLSConfig()
 	config := createTestTLSConfig(base)
 
-	tlsconfig.HookMTLSClientConfig(config, svid, bundle, tlsconfig.AuthorizeAny(),
-		tlsconfig.WithTrace(localTrace),
+	hookMTLSClientConfig(config, svid, bundle, AuthorizeAny(),
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -102,7 +101,7 @@ func TestHookMTLSClientConfig(t *testing.T) {
 	assert.True(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -110,8 +109,8 @@ func TestMTLSWebClientConfig(t *testing.T) {
 	svid := &x509svid.SVID{}
 	roots := x509.NewCertPool()
 
-	config := tlsconfig.MTLSWebClientConfig(svid, roots,
-		tlsconfig.WithTrace(localTrace),
+	config := nativeMTLSWebClientConfig(svid, roots,
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -130,8 +129,8 @@ func TestHookMTLSWebClientConfig(t *testing.T) {
 	config := createTestTLSConfig(base)
 	roots := x509.NewCertPool()
 
-	tlsconfig.HookMTLSWebClientConfig(config, svid, roots,
-		tlsconfig.WithTrace(localTrace),
+	hookMTLSWebClientConfig(config, svid, roots,
+		WithTrace(localTrace),
 	)
 
 	// Expected AuthFields
@@ -149,8 +148,8 @@ func TestHookMTLSWebClientConfig(t *testing.T) {
 func TestTLSServerConfig(t *testing.T) {
 	svid := &x509svid.SVID{}
 
-	config := tlsconfig.TLSServerConfig(svid,
-		tlsconfig.WithTrace(localTrace),
+	config := nativeTLSServerConfig(svid,
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -168,8 +167,8 @@ func TestHookTLSServerConfig(t *testing.T) {
 	base := createBaseTLSConfig()
 	config := createTestTLSConfig(base)
 
-	tlsconfig.HookTLSServerConfig(config, svid,
-		tlsconfig.WithTrace(localTrace),
+	hookTLSServerConfig(config, svid,
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -188,8 +187,8 @@ func TestMTLSServerConfig(t *testing.T) {
 	bundle := x509bundle.New(trustDomain)
 	svid := &x509svid.SVID{}
 
-	config := tlsconfig.MTLSServerConfig(svid, bundle, tlsconfig.AuthorizeAny(),
-		tlsconfig.WithTrace(localTrace),
+	config := nativeMTLSServerConfig(svid, bundle, AuthorizeAny(),
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -199,7 +198,7 @@ func TestMTLSServerConfig(t *testing.T) {
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookMTLSServerConfig(t *testing.T) {
@@ -209,8 +208,8 @@ func TestHookMTLSServerConfig(t *testing.T) {
 	base := createBaseTLSConfig()
 	config := createTestTLSConfig(base)
 
-	tlsconfig.HookMTLSServerConfig(config, svid, bundle, tlsconfig.AuthorizeAny(),
-		tlsconfig.WithTrace(localTrace),
+	hookMTLSServerConfig(config, svid, bundle, AuthorizeAny(),
+		WithTrace(localTrace),
 	)
 
 	assert.Nil(t, config.Certificates)
@@ -220,7 +219,7 @@ func TestHookMTLSServerConfig(t *testing.T) {
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
@@ -229,16 +228,16 @@ func TestMTLSWebServerConfig(t *testing.T) {
 	bundle := x509bundle.New(trustDomain)
 	tlsCert := &tls.Certificate{Certificate: [][]byte{[]byte("body")}}
 
-	config := tlsconfig.MTLSWebServerConfig(tlsCert, bundle, tlsconfig.AuthorizeAny())
+	config := nativeMTLSWebServerConfig(tlsCert, bundle, AuthorizeAny())
 
-	assert.Equal(t, []tls.Certificate{*tlsCert}, config.Certificates)
+	assert.Nil(t, config.Certificates)
 	assert.Equal(t, tls.RequireAnyClientCert, config.ClientAuth)
-	assert.Nil(t, config.GetCertificate)
+	assert.NotNil(t, config.GetCertificate)
 	assert.Nil(t, config.GetClientCertificate)
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 }
 
 func TestHookMTLSWebServerConfig(t *testing.T) {
@@ -248,28 +247,28 @@ func TestHookMTLSWebServerConfig(t *testing.T) {
 	base := createBaseTLSConfig()
 	config := createTestTLSConfig(base)
 
-	tlsconfig.HookMTLSWebServerConfig(config, tlsCert, bundle, tlsconfig.AuthorizeAny())
+	hookMTLSWebServerConfig(config, tlsCert, bundle, AuthorizeAny())
 
-	assert.Equal(t, []tls.Certificate{*tlsCert}, config.Certificates)
+	assert.Nil(t, config.Certificates)
 	assert.Equal(t, tls.RequireAnyClientCert, config.ClientAuth)
-	assert.Nil(t, config.GetCertificate)
+	assert.NotNil(t, config.GetCertificate)
 	assert.Nil(t, config.GetClientCertificate)
 	assert.False(t, config.InsecureSkipVerify)
 	assert.Nil(t, config.NameToCertificate) //nolint:staticcheck // setting to nil is OK
 	assert.Nil(t, config.RootCAs)
-	assert.NotNil(t, config.VerifyPeerCertificate)
+	assert.NotNil(t, config.VerifyConnection)
 	assertUnrelatedFieldsUntouched(t, base, config)
 }
 
-func hookedTracer(onGetCertificate, onGotCertificate func()) tlsconfig.Trace {
-	return tlsconfig.Trace{
-		GetCertificate: func(tlsconfig.GetCertificateInfo) any {
+func hookedTracer(onGetCertificate, onGotCertificate func()) Trace {
+	return Trace{
+		GetCertificate: func(GetCertificateInfo) any {
 			if onGetCertificate != nil {
 				onGetCertificate()
 			}
 			return nil
 		},
-		GotCertificate: func(tlsconfig.GotCertificateInfo, any) {
+		GotCertificate: func(GotCertificateInfo, any) {
 			if onGotCertificate != nil {
 				onGotCertificate()
 			}
@@ -278,6 +277,8 @@ func hookedTracer(onGetCertificate, onGotCertificate func()) tlsconfig.Trace {
 }
 
 func TestGetCertificate(t *testing.T) {
+	ca := test.NewPQCA(t, spiffeid.RequireTrustDomainFromString("trustdomain"))
+	svid := ca.CreateX509SVID(spiffeid.RequireFromString("spiffe://trustdomain/host"))
 	testCases := []struct {
 		name          string
 		source        *fakeSource
@@ -287,15 +288,10 @@ func TestGetCertificate(t *testing.T) {
 		{
 			name: "success",
 			source: &fakeSource{
-				err: nil,
-				svid: &x509svid.SVID{
-					ID: spiffeid.RequireFromString("spiffe://trustdomain/host"),
-					Certificates: []*x509.Certificate{
-						{Raw: []byte("body")},
-					},
-				},
+				err:  nil,
+				svid: svid,
 			},
-			expectedCerts: [][]byte{[]byte("body")},
+			expectedCerts: [][]byte{svid.Certificates[0].Raw},
 		},
 		{
 			name: "source return error",
@@ -313,7 +309,7 @@ func TestGetCertificate(t *testing.T) {
 				func() { getCertificateCalls++ },
 				nil,
 			)
-			getCertificate := tlsconfig.GetCertificate(testCase.source, tlsconfig.WithTrace(tracer))
+			getCertificate := GetCertificate(testCase.source, WithTrace(tracer))
 			require.NotNil(t, getCertificate)
 
 			tlsCert, err := getCertificate(&tls.ClientHelloInfo{})
@@ -331,6 +327,8 @@ func TestGetCertificate(t *testing.T) {
 }
 
 func TestGetClientCertificate(t *testing.T) {
+	ca := test.NewPQCA(t, spiffeid.RequireTrustDomainFromString("trustdomain"))
+	svid := ca.CreateX509SVID(spiffeid.RequireFromString("spiffe://trustdomain/host"))
 	testCases := []struct {
 		name          string
 		source        *fakeSource
@@ -340,15 +338,10 @@ func TestGetClientCertificate(t *testing.T) {
 		{
 			name: "success",
 			source: &fakeSource{
-				err: nil,
-				svid: &x509svid.SVID{
-					ID: spiffeid.RequireFromString("spiffe://trustdomain/host"),
-					Certificates: []*x509.Certificate{
-						{Raw: []byte("body")},
-					},
-				},
+				err:  nil,
+				svid: svid,
 			},
-			expectedCerts: [][]byte{[]byte("body")},
+			expectedCerts: [][]byte{svid.Certificates[0].Raw},
 		},
 		{
 			name: "source return error",
@@ -366,7 +359,7 @@ func TestGetClientCertificate(t *testing.T) {
 				func() { getCertificateCalls++ },
 				nil,
 			)
-			getClientCertificate := tlsconfig.GetClientCertificate(testCase.source, tlsconfig.WithTrace(tracer))
+			getClientCertificate := GetClientCertificate(testCase.source, WithTrace(tracer))
 			require.NotNil(t, getClientCertificate)
 
 			tlsCert, err := getClientCertificate(&tls.CertificateRequestInfo{})
@@ -385,39 +378,39 @@ func TestGetClientCertificate(t *testing.T) {
 
 func TestVerifyPeerCertificate(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1 := ca1.CreateX509SVID(spiffeid.RequireFromPath(td, "/host"))
 	svid1Raw := x509util.RawCertsFromCerts(svid1.Certificates)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	testCases := []struct {
 		name       string
-		authorizer tlsconfig.Authorizer
+		authorizer Authorizer
 		bundle     x509bundle.Source
 		err        string
 		raw        [][]byte
 	}{
 		{
 			name:       "success",
-			authorizer: tlsconfig.AuthorizeAny(),
+			authorizer: AuthorizeAny(),
 			bundle:     bundle1,
 			raw:        svid1Raw,
 		},
 		{
 			name:       "parse and validation fails",
-			authorizer: tlsconfig.AuthorizeAny(),
+			authorizer: AuthorizeAny(),
 			bundle:     bundle2,
 			err:        `x509svid: could not get X509 bundle: x509bundle: no X.509 bundle found for trust domain: "domain1.test"`,
 			raw:        svid1Raw,
 		},
 		{
 			name:       "authorizer fails",
-			authorizer: tlsconfig.AuthorizeMemberOf(td2),
+			authorizer: AuthorizeMemberOf(td2),
 			bundle:     bundle1,
 			err:        `unexpected trust domain "domain1.test"`,
 			raw:        svid1Raw,
@@ -426,7 +419,7 @@ func TestVerifyPeerCertificate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			verifyPeerCertificate := tlsconfig.VerifyPeerCertificate(testCase.bundle, testCase.authorizer)
+			verifyPeerCertificate := verifyPeerCertificate(testCase.bundle, testCase.authorizer)
 			require.NotNil(t, verifyPeerCertificate)
 
 			err := verifyPeerCertificate(testCase.raw, [][]*x509.Certificate{})
@@ -442,14 +435,14 @@ func TestVerifyPeerCertificate(t *testing.T) {
 
 func TestWrapVerifyPeerCertificate(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1 := ca1.CreateX509SVID(spiffeid.RequireFromPath(td, "/host"))
 	svid1Raw := x509util.RawCertsFromCerts(svid1.Certificates)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	wrapped := func([][]byte, [][]*x509.Certificate) error {
@@ -458,7 +451,7 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		authorizer tlsconfig.Authorizer
+		authorizer Authorizer
 		bundle     x509bundle.Source
 		err        string
 		raw        [][]byte
@@ -466,13 +459,13 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 	}{
 		{
 			name:       "no wrapped",
-			authorizer: tlsconfig.AuthorizeAny(),
+			authorizer: AuthorizeAny(),
 			bundle:     bundle1,
 			raw:        svid1Raw,
 		},
 		{
 			name:       "parse and validation fails",
-			authorizer: tlsconfig.AuthorizeAny(),
+			authorizer: AuthorizeAny(),
 			bundle:     bundle2,
 			err:        `x509svid: could not get X509 bundle: x509bundle: no X.509 bundle found for trust domain: "domain1.test"`,
 			raw:        svid1Raw,
@@ -480,7 +473,7 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 		},
 		{
 			name:       "authorizer fails",
-			authorizer: tlsconfig.AuthorizeMemberOf(td2),
+			authorizer: AuthorizeMemberOf(td2),
 			bundle:     bundle1,
 			err:        `unexpected trust domain "domain1.test"`,
 			raw:        svid1Raw,
@@ -488,7 +481,7 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 		},
 		{
 			name:       "wrapped is called",
-			authorizer: tlsconfig.AuthorizeAny(),
+			authorizer: AuthorizeAny(),
 			bundle:     bundle1,
 			err:        "wrapped called",
 			raw:        svid1Raw,
@@ -498,7 +491,7 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			verifyPeerCertificate := tlsconfig.WrapVerifyPeerCertificate(testCase.wrapped, testCase.bundle, testCase.authorizer)
+			verifyPeerCertificate := wrapVerifyPeerCertificate(testCase.wrapped, testCase.bundle, testCase.authorizer)
 			require.NotNil(t, verifyPeerCertificate)
 
 			err := verifyPeerCertificate(testCase.raw, [][]*x509.Certificate{})
@@ -514,17 +507,17 @@ func TestWrapVerifyPeerCertificate(t *testing.T) {
 
 func TestTLSHandshake(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1ID := spiffeid.RequireFromPath(td, "/server")
 	serverSVID := ca1.CreateX509SVID(svid1ID)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
-	ca3 := test.NewCA(t, td)
+	ca3 := test.NewPQCA(t, td)
 	bundle3 := ca3.Bundle()
 
 	testCases := []struct {
@@ -536,27 +529,27 @@ func TestTLSHandshake(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			serverConfig: tlsconfig.TLSServerConfig(serverSVID),
-			clientConfig: tlsconfig.TLSClientConfig(bundle1, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeTLSServerConfig(serverSVID),
+			clientConfig: nativeTLSClientConfig(bundle1, AuthorizeAny()),
 		},
 		{
 			name:         "authentication fails",
-			serverConfig: tlsconfig.TLSServerConfig(serverSVID),
-			clientConfig: tlsconfig.TLSClientConfig(bundle1, tlsconfig.AuthorizeMemberOf(td2)),
+			serverConfig: nativeTLSServerConfig(serverSVID),
+			clientConfig: nativeTLSClientConfig(bundle1, AuthorizeMemberOf(td2)),
 			clientErr:    `unexpected trust domain "domain1.test"`,
 			serverErr:    "remote error: tls: bad certificate",
 		},
 		{
 			name:         "handshake fails",
-			serverConfig: tlsconfig.TLSServerConfig(serverSVID),
-			clientConfig: tlsconfig.TLSClientConfig(bundle2, tlsconfig.AuthorizeMemberOf(td)),
+			serverConfig: nativeTLSServerConfig(serverSVID),
+			clientConfig: nativeTLSClientConfig(bundle2, AuthorizeMemberOf(td)),
 			clientErr:    `x509svid: could not get X509 bundle: x509bundle: no X.509 bundle found for trust domain: "domain1.test"`,
 			serverErr:    "remote error: tls: bad certificate",
 		},
 		{
 			name:         "unknown authority",
-			serverConfig: tlsconfig.TLSServerConfig(serverSVID),
-			clientConfig: tlsconfig.TLSClientConfig(bundle3, tlsconfig.AuthorizeMemberOf(td)),
+			serverConfig: nativeTLSServerConfig(serverSVID),
+			clientConfig: nativeTLSClientConfig(bundle3, AuthorizeMemberOf(td)),
 			clientErr:    `x509svid: could not verify leaf certificate: x509: certificate signed by unknown authority`,
 			serverErr:    "remote error: tls: bad certificate",
 		},
@@ -571,7 +564,7 @@ func TestTLSHandshake(t *testing.T) {
 
 func TestMTLSHandshake(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	svid1ID := spiffeid.RequireFromPath(td, "/server")
@@ -581,12 +574,12 @@ func TestMTLSHandshake(t *testing.T) {
 	clientSVID := ca1.CreateX509SVID(svid2ID)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	// Create a new bundle with same TD and SVID in order to verify that
 	// presented certificates fails on handshake.
-	ca3 := test.NewCA(t, td)
+	ca3 := test.NewPQCA(t, td)
 	bundle3 := ca3.Bundle()
 
 	svid3ID := spiffeid.RequireFromPath(td, "/client")
@@ -601,41 +594,41 @@ func TestMTLSHandshake(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			serverConfig: tlsconfig.MTLSServerConfig(serverSVID, bundle1, tlsconfig.AuthorizeAny()),
-			clientConfig: tlsconfig.MTLSClientConfig(clientSVID, bundle1, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeMTLSServerConfig(serverSVID, bundle1, AuthorizeAny()),
+			clientConfig: nativeMTLSClientConfig(clientSVID, bundle1, AuthorizeAny()),
 		},
 		{
 			name:         "client authentication fails",
-			serverConfig: tlsconfig.MTLSServerConfig(serverSVID, bundle1, tlsconfig.AuthorizeAny()),
-			clientConfig: tlsconfig.MTLSClientConfig(clientSVID, bundle1, tlsconfig.AuthorizeMemberOf(td2)),
+			serverConfig: nativeMTLSServerConfig(serverSVID, bundle1, AuthorizeAny()),
+			clientConfig: nativeMTLSClientConfig(clientSVID, bundle1, AuthorizeMemberOf(td2)),
 			clientErr:    `unexpected trust domain "domain1.test"`,
 			serverErr:    "remote error: tls: bad certificate",
 		},
 		{
 			name:         "client handshake fails",
-			serverConfig: tlsconfig.MTLSServerConfig(serverSVID, bundle1, tlsconfig.AuthorizeAny()),
-			clientConfig: tlsconfig.MTLSClientConfig(clientSVID, bundle2, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeMTLSServerConfig(serverSVID, bundle1, AuthorizeAny()),
+			clientConfig: nativeMTLSClientConfig(clientSVID, bundle2, AuthorizeAny()),
 			clientErr:    `x509svid: could not get X509 bundle: x509bundle: no X.509 bundle found for trust domain: "domain1.test"`,
 			serverErr:    "remote error: tls: bad certificate",
 		},
 		{
 			name:         "server authentication",
-			serverConfig: tlsconfig.MTLSServerConfig(serverSVID, bundle1, tlsconfig.AuthorizeMemberOf(td2)),
-			clientConfig: tlsconfig.MTLSClientConfig(clientSVID, bundle1, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeMTLSServerConfig(serverSVID, bundle1, AuthorizeMemberOf(td2)),
+			clientConfig: nativeMTLSClientConfig(clientSVID, bundle1, AuthorizeAny()),
 			clientErr:    "remote error: tls: bad certificate",
 			serverErr:    `unexpected trust domain "domain1.test"`,
 		},
 		{
 			name:         "server handshake fails",
-			serverConfig: tlsconfig.MTLSServerConfig(serverSVID, bundle2, tlsconfig.AuthorizeAny()),
-			clientConfig: tlsconfig.MTLSClientConfig(clientSVID, bundle1, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeMTLSServerConfig(serverSVID, bundle2, AuthorizeAny()),
+			clientConfig: nativeMTLSClientConfig(clientSVID, bundle1, AuthorizeAny()),
 			clientErr:    "remote error: tls: bad certificate",
 			serverErr:    `x509svid: could not get X509 bundle: x509bundle: no X.509 bundle found for trust domain: "domain1.test"`,
 		},
 		{
 			name:         "unknown authority",
-			serverConfig: tlsconfig.MTLSServerConfig(serverSVID, bundle1, tlsconfig.AuthorizeAny()),
-			clientConfig: tlsconfig.MTLSClientConfig(client3SVID, bundle3, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeMTLSServerConfig(serverSVID, bundle1, AuthorizeAny()),
+			clientConfig: nativeMTLSClientConfig(client3SVID, bundle3, AuthorizeAny()),
 			serverErr:    "remote error: tls: bad certificate",
 			clientErr:    "x509svid: could not verify leaf certificate: x509: certificate signed by unknown authority",
 		},
@@ -650,13 +643,13 @@ func TestMTLSHandshake(t *testing.T) {
 
 func TestMTLSWebHandshake(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain1.test")
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	bundle1 := ca1.X509Bundle()
 
 	serverID := spiffeid.RequireFromPath(td, "/server")
 	serverSVID := ca1.CreateX509SVID(serverID)
 
-	roots, tlsCert := test.CreateWebCredentials(t)
+	roots, tlsCert := test.CreatePQWebCredentials(t)
 	roots2 := x509.NewCertPool()
 	roots2.AddCert(serverSVID.Certificates[0])
 
@@ -664,12 +657,12 @@ func TestMTLSWebHandshake(t *testing.T) {
 	clientSVID := ca1.CreateX509SVID(clientID)
 
 	td2 := spiffeid.RequireTrustDomainFromString("domain2.test")
-	ca2 := test.NewCA(t, td2)
+	ca2 := test.NewPQCA(t, td2)
 	bundle2 := ca2.X509Bundle()
 
 	// Create a new bundle with same TD and SVID in order to verify that
 	// presented certificates fails on handshake.
-	ca3 := test.NewCA(t, td)
+	ca3 := test.NewPQCA(t, td)
 	svid3ID := spiffeid.RequireFromPath(td, "/client")
 	client3SVID := ca3.CreateX509SVID(svid3ID)
 
@@ -682,34 +675,34 @@ func TestMTLSWebHandshake(t *testing.T) {
 	}{
 		{
 			name:         "success",
-			clientConfig: tlsconfig.MTLSWebClientConfig(clientSVID, roots),
-			serverConfig: tlsconfig.MTLSWebServerConfig(tlsCert, bundle1, tlsconfig.AuthorizeAny()),
+			clientConfig: nativeMTLSWebClientConfig(clientSVID, roots),
+			serverConfig: nativeMTLSWebServerConfig(tlsCert, bundle1, AuthorizeAny()),
 		},
 		{
 			name:         "server authentication fails",
-			clientConfig: tlsconfig.MTLSWebClientConfig(clientSVID, roots),
+			clientConfig: nativeMTLSWebClientConfig(clientSVID, roots),
 			clientErr:    "remote error: tls: bad certificate",
-			serverConfig: tlsconfig.MTLSWebServerConfig(tlsCert, bundle1, tlsconfig.AuthorizeMemberOf(td2)),
+			serverConfig: nativeMTLSWebServerConfig(tlsCert, bundle1, AuthorizeMemberOf(td2)),
 			serverErr:    `unexpected trust domain "domain1.test"`,
 		},
 		{
 			name:         "server handshake fails",
-			clientConfig: tlsconfig.MTLSWebClientConfig(clientSVID, roots),
+			clientConfig: nativeMTLSWebClientConfig(clientSVID, roots),
 			clientErr:    "remote error: tls: bad certificate",
-			serverConfig: tlsconfig.MTLSWebServerConfig(tlsCert, bundle2, tlsconfig.AuthorizeMemberOf(td2)),
+			serverConfig: nativeMTLSWebServerConfig(tlsCert, bundle2, AuthorizeMemberOf(td2)),
 			serverErr:    `x509svid: could not get X509 bundle: x509bundle: no X.509 bundle found for trust domain: "domain1.test"`,
 		},
 		{
 			name:         "client no valid certificate",
-			clientConfig: tlsconfig.MTLSWebClientConfig(clientSVID, roots2),
+			clientConfig: nativeMTLSWebClientConfig(clientSVID, roots2),
 			clientErr:    "x509: certificate signed by unknown authority",
-			serverConfig: tlsconfig.MTLSWebServerConfig(tlsCert, bundle1, tlsconfig.AuthorizeAny()),
+			serverConfig: nativeMTLSWebServerConfig(tlsCert, bundle1, AuthorizeAny()),
 			serverErr:    "remote error: tls: bad certificate",
 		},
 		{
 			name:         "unknown authority",
-			clientConfig: tlsconfig.MTLSWebClientConfig(client3SVID, roots),
-			serverConfig: tlsconfig.MTLSWebServerConfig(tlsCert, bundle1, tlsconfig.AuthorizeAny()),
+			clientConfig: nativeMTLSWebClientConfig(client3SVID, roots),
+			serverConfig: nativeMTLSWebServerConfig(tlsCert, bundle1, AuthorizeAny()),
 			clientErr:    "remote error: tls: bad certificate",
 			serverErr:    "x509svid: could not verify leaf certificate: x509: certificate signed by unknown authority",
 		},
@@ -846,7 +839,7 @@ func createBaseTLSConfig() *tls.Config {
 }
 
 func assertUnrelatedFieldsUntouched(t testing.TB, base, wrapped *tls.Config) {
-	assert.Equal(t, base.Rand, wrapped.Rand) //nolint:staticcheck // verify legacy caller field is preserved
+	assert.Nil(t, wrapped.Rand) //nolint:staticcheck // caller-controlled randomness is prohibited
 	assert.NotNil(t, wrapped.Time)
 	assert.NotNil(t, wrapped.GetConfigForClient)
 	assert.Equal(t, base.NextProtos, wrapped.NextProtos)
@@ -855,10 +848,10 @@ func assertUnrelatedFieldsUntouched(t testing.TB, base, wrapped *tls.Config) {
 	assert.Equal(t, base.CipherSuites, wrapped.CipherSuites)
 	assert.Equal(t, base.SessionTicketsDisabled, wrapped.SessionTicketsDisabled)
 	assert.Equal(t, base.SessionTicketKey, wrapped.SessionTicketKey) //nolint:staticcheck // need to assert this field is not inadvertently mutated
-	assert.Equal(t, base.ClientSessionCache, wrapped.ClientSessionCache)
-	assert.Equal(t, base.MinVersion, wrapped.MinVersion)
-	assert.Equal(t, base.MaxVersion, wrapped.MaxVersion)
-	assert.Equal(t, base.CurvePreferences, wrapped.CurvePreferences)
+	assert.Nil(t, wrapped.ClientSessionCache)
+	assert.Equal(t, uint16(tls.VersionTLS13), wrapped.MinVersion)
+	assert.Equal(t, uint16(tls.VersionTLS13), wrapped.MaxVersion)
+	assert.Equal(t, []tls.CurveID{tls.X25519MLKEM768, tls.SecP256r1MLKEM768}, wrapped.CurvePreferences)
 	assert.Equal(t, base.DynamicRecordSizingDisabled, wrapped.DynamicRecordSizingDisabled)
 	assert.Equal(t, base.Renegotiation, wrapped.Renegotiation)
 	assert.Equal(t, base.KeyLogWriter, wrapped.KeyLogWriter)

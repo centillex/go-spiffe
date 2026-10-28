@@ -42,13 +42,13 @@ func run(ctx context.Context) error {
 	}
 	defer x509Source.Close()
 
-	// Create a `tls.Config` with configuration to allow TLS communication, and verify that presented certificate from server has SPIFFE ID `spiffe://example.org/server`
+	// Create a owned TLS configuration with configuration to allow TLS communication, and verify that presented certificate from server has SPIFFE ID `spiffe://example.org/server`
 	serverID := spiffeid.RequireFromString("spiffe://example.org/server")
 	tlsConfig := tlsconfig.TLSClientConfig(x509Source, tlsconfig.AuthorizeID(serverID))
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
+			DialTLSContext: tlsConfig.DialContext,
 		},
 	}
 

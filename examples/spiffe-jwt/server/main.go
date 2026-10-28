@@ -82,11 +82,10 @@ func run(ctx context.Context) error {
 	}
 	defer x509Source.Close()
 
-	// Create a `tls.Config` with configuration to allow TLS communication with client
+	// Create a owned TLS configuration with configuration to allow TLS communication with client
 	tlsConfig := tlsconfig.TLSServerConfig(x509Source)
 	server := &http.Server{
 		Addr:              ":8443",
-		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: time.Second * 10,
 	}
 
@@ -104,7 +103,7 @@ func run(ctx context.Context) error {
 	}
 	http.Handle("/", auth.authenticateClient(http.HandlerFunc(index)))
 
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	if err := tlsConfig.ListenAndServe(server); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil

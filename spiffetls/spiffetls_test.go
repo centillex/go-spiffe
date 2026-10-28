@@ -78,7 +78,7 @@ func TestListenAndDial(t *testing.T) {
 	svidSource := testEnv.ca.CreateX509SVID(clientID)
 
 	// Create web credentials
-	webCertPool, webCert := test.CreateWebCredentials(t)
+	webCertPool, webCert := test.CreatePQWebCredentials(t)
 
 	// Flag used to detect if an external dialer was actually used
 	externalDialerUsed := false
@@ -169,10 +169,9 @@ func TestListenAndDial(t *testing.T) {
 			serverConnPeerIDErr: "spiffetls: no peer certificates",
 		},
 		{
-			name:                "TLSClient succeeds with Dial",
-			listenMode:          spiffetls.TLSServerWithSource(testEnv.wlAPISourceA),
-			serverConnPeerIDErr: "spiffetls: no peer certificates",
-			defaultWlAPIAddr:    testEnv.wlAPIServerB.Addr(),
+			name:             "MTLSClient succeeds with default Dial",
+			listenMode:       spiffetls.MTLSServerWithSource(tlsconfig.AuthorizeID(clientID), testEnv.wlAPISourceA),
+			defaultWlAPIAddr: testEnv.wlAPIServerB.Addr(),
 		},
 		{
 			name:             "MTLSClient succeeds",
@@ -483,7 +482,7 @@ func setupTestEnv(t *testing.T) (*testEnv, func()) {
 	}
 
 	// Common CA for client and server SVIDs
-	testEnv.ca = test.NewCA(t, td)
+	testEnv.ca = test.NewPQCA(t, td)
 
 	// Start two fake workload API servers called "A" and "B"
 	// Workload API Server A provides identities to the server workload
