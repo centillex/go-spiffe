@@ -19,39 +19,39 @@ import (
 // TLSClientCredentials returns TLS credentials which verify and authorize
 // the server X509-SVID.
 func TLSClientCredentials(bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.TLSClientConfig(bundle, authorizer, opts...)), expectPeerID: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.TLSClientConfig(bundle, authorizer, opts...)), expectPeerID: true}
 }
 
 // MTLSClientCredentials returns TLS credentials which present an X509-SVID
 // to the server and verifies and authorizes the server X509-SVID.
 func MTLSClientCredentials(svid x509svid.Source, bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSClientConfig(svid, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSClientConfig(svid, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
 }
 
 // MTLSWebClientCredentials returns TLS credentials which present an X509-SVID
 // to the server and verifies the server certificate using provided roots (or
 // the system roots if nil).
 func MTLSWebClientCredentials(svid x509svid.Source, roots *x509.CertPool, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSWebClientConfig(svid, roots, opts...)), expectPeerID: false, requireMutual: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSWebClientConfig(svid, roots, opts...)), expectPeerID: false, requireMutual: true}
 }
 
 // TLSServerCredentials returns TLS credentials which present an X509-SVID
 // to the client and does not require or verify client certificates.
 func TLSServerCredentials(svid x509svid.Source, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.TLSServerConfig(svid, opts...)), expectPeerID: false}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.TLSServerConfig(svid, opts...)), expectPeerID: false}
 }
 
 // MTLSServerCredentials returns TLS credentials which present an X509-SVID
 // to the client and requires, verifies, and authorizes client X509-SVIDs.
 func MTLSServerCredentials(svid x509svid.Source, bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSServerConfig(svid, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSServerConfig(svid, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
 }
 
 // MTLSWebServerCredentials returns TLS credentials which present a web
 // server certificate to the client and requires, verifies, and authorizes
 // client X509-SVIDs.
 func MTLSWebServerCredentials(cert *tls.Certificate, bundle x509bundle.Source, authorizer tlsconfig.Authorizer, opts ...tlsconfig.Option) credentials.TransportCredentials {
-	return credentialsWrapper{c: credentials.NewTLS(tlsconfig.MTLSWebServerConfig(cert, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
+	return credentialsWrapper{c: newOwnedCredentials(tlsconfig.MTLSWebServerConfig(cert, bundle, authorizer, opts...)), expectPeerID: true, requireMutual: true}
 }
 
 // PeerIDFromContext returns the SPIFFE ID from the peer information on the

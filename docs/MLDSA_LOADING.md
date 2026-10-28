@@ -33,9 +33,10 @@ This fork requires Go 1.27.3. The initial validation target is Linux/amd64.
 
 Loading is **not authentication**. It does not establish certificate-path trust,
 validity at use time, TLS policy, or issuance authorization. Classical loader
-capability remains for the existing regression surface until strict enforcement
-is implemented. Manually constructing exported SVID fields bypasses loader
-checks; authentication boundaries must revalidate such credentials in step 4.
+capability remains for data handling, but the [owned authentication
+boundaries](STRICT_TLS_STATUS.md) reject classical credentials. Manually
+constructing exported SVID fields bypasses loader checks; those authentication
+boundaries reparse signed DER and revalidate credentials before use.
 The SDK is not yet strict-PQ-by-default or production-ready.
 
 No claim of FIPS certification, external signer/HSM compatibility, independent

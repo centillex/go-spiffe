@@ -2,7 +2,6 @@ package federation
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -33,7 +32,7 @@ func WithSPIFFEAuth(bundleSource x509bundle.Source, endpointID spiffeid.ID) Fetc
 		if o.authMethod != authMethodDefault {
 			return wrapFederationErr(errors.New("cannot use both SPIFFE and Web PKI authentication"))
 		}
-		o.transport.TLSClientConfig = tlsconfig.TLSClientConfig(bundleSource, tlsconfig.AuthorizeID(endpointID))
+		o.transport.DialTLSContext = tlsconfig.TLSClientConfig(bundleSource, tlsconfig.AuthorizeID(endpointID)).DialContext
 		o.authMethod = authMethodSPIFFE
 		return nil
 	})
@@ -47,10 +46,7 @@ func WithWebPKIRoots(rootCAs *x509.CertPool) FetchOption {
 		if o.authMethod != authMethodDefault {
 			return wrapFederationErr(errors.New("cannot use both SPIFFE and Web PKI authentication"))
 		}
-		o.transport.TLSClientConfig = &tls.Config{
-			RootCAs:    rootCAs,
-			MinVersion: tls.VersionTLS12,
-		}
+		o.transport.DialTLSContext = tlsconfig.WebClientConfig(rootCAs).DialContext
 		o.authMethod = authMethodWebPKI
 		return nil
 	})
@@ -59,8 +55,11 @@ func WithWebPKIRoots(rootCAs *x509.CertPool) FetchOption {
 // FetchBundle retrieves a bundle from a bundle endpoint.
 func FetchBundle(ctx context.Context, trustDomain spiffeid.TrustDomain, url string, option ...FetchOption) (*spiffebundle.Bundle, error) {
 	opts := fetchOptions{
-		transport: http.DefaultTransport.(*http.Transport).Clone(),
+		transport: &http.Transport{},
 	}
+	// Do not inherit mutable global transports, proxies, or TLS dial callbacks.
+	opts.transport.DialTLSContext = tlsconfig.WebClientConfig(nil).DialContext
+	defer opts.transport.CloseIdleConnections()
 	for _, o := range option {
 		if err := o.apply(&opts); err != nil {
 			return nil, err
@@ -69,10 +68,16 @@ func FetchBundle(ctx context.Context, trustDomain spiffeid.TrustDomain, url stri
 
 	var client = &http.Client{
 		Transport: opts.transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return wrapFederationErr(errors.New("bundle endpoint redirects are not permitted"))
+		},
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, wrapFederationErr(fmt.Errorf("could not create request: %w", err))
+	}
+	if request.URL.Scheme != "https" || request.URL.Host == "" {
+		return nil, wrapFederationErr(errors.New("bundle endpoint must use HTTPS"))
 	}
 	response, err := client.Do(request)
 	if err != nil {

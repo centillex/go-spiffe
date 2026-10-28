@@ -49,7 +49,7 @@ func TestWatchBundle_OnError(t *testing.T) {
 	watcher := &fakewatcher{
 		t:            t,
 		nextRefresh:  time.Second,
-		expectedErr:  `federation: could not GET bundle: Get "?wrong%20url"?: unsupported protocol scheme ""`,
+		expectedErr:  `federation: bundle endpoint must use HTTPS`,
 		cancel:       cancel,
 		latestBundle: &spiffebundle.Bundle{},
 	}

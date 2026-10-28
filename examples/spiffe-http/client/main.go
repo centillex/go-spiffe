@@ -39,11 +39,11 @@ func run(ctx context.Context) error {
 	// Allowed SPIFFE ID
 	serverID := spiffeid.RequireFromString("spiffe://example.org/server")
 
-	// Create a `tls.Config` to allow mTLS connections, and verify that presented certificate has SPIFFE ID `spiffe://example.org/server`
+	// Create a owned TLS configuration to allow mTLS connections, and verify that presented certificate has SPIFFE ID `spiffe://example.org/server`
 	tlsConfig := tlsconfig.MTLSClientConfig(source, source, tlsconfig.AuthorizeID(serverID))
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
+			DialTLSContext: tlsConfig.DialContext,
 		},
 	}
 

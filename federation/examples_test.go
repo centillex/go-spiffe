@@ -2,6 +2,7 @@ package federation_test
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"time"
 
@@ -125,7 +126,11 @@ func ExampleHandler_webPKI() {
 		Handler:           handler,
 		ReadHeaderTimeout: time.Second * 10, // TODO: set this appropriately
 	}
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	cert, err := tls.LoadX509KeyPair("pq-server.pem", "pq-key.pem")
+	if err != nil {
+		return
+	} // TODO: handle error
+	if err := tlsconfig.WebServerConfig(&cert).ListenAndServe(&server); err != nil {
 		// TODO: handle error
 	}
 }
@@ -159,9 +164,8 @@ func ExampleHandler_sPIFFEAuth() {
 		Addr:              ":8443",
 		Handler:           handler,
 		ReadHeaderTimeout: time.Second * 10, // TODO: set this appropriately
-		TLSConfig:         tlsconfig.TLSServerConfig(x509Source),
 	}
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	if err := tlsconfig.TLSServerConfig(x509Source).ListenAndServe(&server); err != nil {
 		// TODO: handle error
 	}
 }

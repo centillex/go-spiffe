@@ -15,9 +15,8 @@ import (
 
 func profileError(message string) error { return fmt.Errorf("%s: %s", pqpolicy.ID, message) }
 
-// installConnectionPolicy moves authentication to VerifyConnection so resumed
-// connections cannot bypass it. Configs remain mutable Go objects: replacing
-// this callback after construction is outside the helper's enforceable boundary.
+// installConnectionPolicy installs authentication on private configs owned by
+// Config. Neither these callbacks nor their TLS state are exposed for mutation.
 func installConnectionPolicy(config *tls.Config, bundle x509bundle.Source, authorizer Authorizer, peerUsage x509.ExtKeyUsage, requireLocal, webPeer, noPeer bool) {
 	previousPeer := config.VerifyPeerCertificate
 	previousConnection := config.VerifyConnection
@@ -60,7 +59,7 @@ func installConnectionPolicy(config *tls.Config, bundle x509bundle.Source, autho
 				if err != nil {
 					return err
 				}
-				if err := authorizer(id, chains); err != nil {
+				if err := authorizer(id, snapshotChains(chains)); err != nil {
 					return err
 				}
 				approved = chains
@@ -70,14 +69,14 @@ func installConnectionPolicy(config *tls.Config, bundle x509bundle.Source, autho
 				for i, cert := range state.PeerCertificates {
 					raw[i] = cert.Raw
 				}
-				if err := previousPeer(raw, approved); err != nil {
+				if err := previousPeer(snapshotBytes(raw), snapshotChains(approved)); err != nil {
 					return err
 				}
 			}
 		}
 		if previousConnection != nil {
 			state.VerifiedChains = approved
-			return previousConnection(state)
+			return previousConnection(snapshotState(state))
 		}
 		return nil
 	}

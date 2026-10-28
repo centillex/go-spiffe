@@ -1,4 +1,4 @@
-package tlsconfig_test
+package tlsconfig
 
 import (
 	"crypto/tls"
@@ -11,7 +11,6 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/internal/test"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
-	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,8 +52,8 @@ func TestStrictPQHandshake(t *testing.T) {
 	client := child.CreateX509SVID(spiffeid.RequireFromPath(td, "/client"))
 	for _, group := range []tls.CurveID{tls.X25519MLKEM768, tls.SecP256r1MLKEM768} {
 		t.Run(group.String(), func(t *testing.T) {
-			sc := tlsconfig.MTLSServerConfig(server, ca.X509Bundle(), tlsconfig.AuthorizeID(client.ID))
-			cc := tlsconfig.MTLSClientConfig(client, ca.X509Bundle(), tlsconfig.AuthorizeID(server.ID))
+			sc := nativeMTLSServerConfig(server, ca.X509Bundle(), AuthorizeID(client.ID))
+			cc := nativeMTLSClientConfig(client, ca.X509Bundle(), AuthorizeID(server.ID))
 			sc.CurvePreferences = []tls.CurveID{group}
 			cc.CurvePreferences = []tls.CurveID{group}
 			state, se, ce := strictHandshake(t, sc, cc)
@@ -87,23 +86,23 @@ func TestStrictPQRejectsDowngrades(t *testing.T) {
 		{"TLS12", func(s, c *tls.Config) { s.MaxVersion = tls.VersionTLS12; c.MaxVersion = tls.VersionTLS12 }},
 		{"missing client certificate", func(_, c *tls.Config) { c.GetClientCertificate = nil }},
 		{"authorization", func(s, _ *tls.Config) {
-			tlsconfig.HookMTLSServerConfig(s, server, ca.X509Bundle(), tlsconfig.AuthorizeID(server.ID))
+			hookMTLSServerConfig(s, server, ca.X509Bundle(), AuthorizeID(server.ID))
 		}},
 		{"classical peer", func(s, c *tls.Config) {
 			classicCA := test.NewCA(t, td)
 			classic := classicCA.CreateX509SVID(server.ID)
 			*s = tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{{Certificate: [][]byte{classic.Certificates[0].Raw}, PrivateKey: classic.PrivateKey}}}
-			*c = *tlsconfig.TLSClientConfig(classicCA.X509Bundle(), tlsconfig.AuthorizeAny())
+			*c = *nativeTLSClientConfig(classicCA.X509Bundle(), AuthorizeAny())
 		}},
 		{"classical source", func(s, _ *tls.Config) {
 			classical := test.NewCA(t, td).CreateX509SVID(server.ID)
-			s.GetCertificate = tlsconfig.GetCertificate(classical)
+			s.GetCertificate = GetCertificate(classical)
 		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sc := tlsconfig.MTLSServerConfig(server, ca.X509Bundle(), tlsconfig.AuthorizeAny())
-			cc := tlsconfig.MTLSClientConfig(client, ca.X509Bundle(), tlsconfig.AuthorizeAny())
+			sc := nativeMTLSServerConfig(server, ca.X509Bundle(), AuthorizeAny())
+			cc := nativeMTLSClientConfig(client, ca.X509Bundle(), AuthorizeAny())
 			tc.change(sc, cc)
 			_, se, ce := strictHandshake(t, sc, cc)
 			require.True(t, se != nil || ce != nil, "both peers accepted invalid connection")
@@ -125,8 +124,8 @@ func TestStrictPQDisablesSessionCache(t *testing.T) {
 	svid := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))
 	cache := &countedSessionCache{}
 	cc := &tls.Config{ClientSessionCache: cache, ServerName: "pq.example"}
-	tlsconfig.HookMTLSClientConfig(cc, svid, ca.X509Bundle(), tlsconfig.AuthorizeAny())
-	sc := tlsconfig.MTLSServerConfig(svid, ca.X509Bundle(), tlsconfig.AuthorizeAny())
+	hookMTLSClientConfig(cc, svid, ca.X509Bundle(), AuthorizeAny())
+	sc := nativeMTLSServerConfig(svid, ca.X509Bundle(), AuthorizeAny())
 	for range 2 {
 		state, se, ce := strictHandshake(t, sc, cc)
 		require.NoError(t, se)
@@ -147,8 +146,8 @@ func TestStrictPQWebPKI(t *testing.T) {
 	for _, c := range certs {
 		cert.Certificate = append(cert.Certificate, c.Raw)
 	}
-	sc := tlsconfig.MTLSWebServerConfig(cert, ca.X509Bundle(), tlsconfig.AuthorizeAny())
-	cc := tlsconfig.MTLSWebClientConfig(client, roots)
+	sc := nativeMTLSWebServerConfig(cert, ca.X509Bundle(), AuthorizeAny())
+	cc := nativeMTLSWebClientConfig(client, roots)
 	cc.ServerName = "127.0.0.1"
 	_, se, ce := strictHandshake(t, sc, cc)
 	require.NoError(t, se)
@@ -156,7 +155,7 @@ func TestStrictPQWebPKI(t *testing.T) {
 
 	classicalRoots, classicalCert := test.CreateWebCredentials(t)
 	weak := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{*classicalCert}}
-	cc = tlsconfig.MTLSWebClientConfig(client, classicalRoots)
+	cc = nativeMTLSWebClientConfig(client, classicalRoots)
 	cc.ServerName = "127.0.0.1"
 	_, _, ce = strictHandshake(t, weak, cc)
 	require.ErrorContains(t, ce, "no approved Web PKI certification path")
@@ -168,7 +167,7 @@ func TestStrictPQOverridesAndCallbacks(t *testing.T) {
 	svid := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))
 	called := false
 	config := &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, CurvePreferences: []tls.CurveID{tls.X25519}, ClientSessionCache: tls.NewLRUClientSessionCache(1), GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) { called = true; return &tls.Config{}, nil }} //nolint:gosec // deliberately weak input; the hook must replace it
-	tlsconfig.HookMTLSServerConfig(config, svid, ca.X509Bundle(), tlsconfig.AuthorizeAny())
+	hookMTLSServerConfig(config, svid, ca.X509Bundle(), AuthorizeAny())
 	require.Equal(t, uint16(tls.VersionTLS13), config.MinVersion)
 	require.Equal(t, uint16(tls.VersionTLS13), config.MaxVersion)
 	require.True(t, config.SessionTicketsDisabled)
@@ -186,8 +185,8 @@ func TestStrictPQOverridesAndCallbacks(t *testing.T) {
 		require.NotEmpty(t, chains)
 		return sentinel
 	}}
-	tlsconfig.HookMTLSClientConfig(cc, svid, ca.X509Bundle(), tlsconfig.AuthorizeAny())
-	sc := tlsconfig.MTLSServerConfig(svid, ca.X509Bundle(), tlsconfig.AuthorizeAny())
+	hookMTLSClientConfig(cc, svid, ca.X509Bundle(), AuthorizeAny())
+	sc := nativeMTLSServerConfig(svid, ca.X509Bundle(), AuthorizeAny())
 	_, _, err = strictHandshake(t, sc, cc)
 	require.ErrorIs(t, err, sentinel)
 	require.True(t, peerCalled)

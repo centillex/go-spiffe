@@ -11,16 +11,20 @@ It leverages the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/mai
 ## Post-quantum fork status
 
 This working tree is implementing `qspiffe-pq-v1`; it is **not yet a strict-PQ
-SDK or production-ready PQ deployment**. The [step-4 enforcement increment](docs/STRICT_TLS_STATUS.md) adds strict
-certificate-path and negotiated-TLS checks, but mutable raw-config APIs and
-other acceptance gaps remain. Token APIs still exist; JWT-SVID/WIT must not be
-used as PQ authentication. See
-[the implementation roadmap](../docs/IMPLEMENTATION_PLAN.md) for remaining
-boundary enforcement, interoperability, and deployment acceptance.
+SDK or production-ready PQ deployment**. [Certificate-path and transport
+enforcement](docs/STRICT_TLS_STATUS.md) now uses owned configurations and
+connections. Constructors return `*tlsconfig.Config`, not mutable `*tls.Config`;
+legacy hook/certificate-only authentication APIs fail explicitly. See the linked
+migration guide before upgrading. Token APIs still exist; JWT-SVID/WIT must not
+be used as PQ authentication. Bundle interoperability, real deployment,
+lifecycle, token rejection, and independent review remain open. The complete
+workspace roadmap is `../docs/IMPLEMENTATION_PLAN.md` (outside this Go module).
 
 ## Documentation
 
-See the [Go Package](https://pkg.go.dev/github.com/spiffe/go-spiffe/v2) documentation.
+Upstream [Go Package](https://pkg.go.dev/github.com/spiffe/go-spiffe/v2)
+documentation describes the upstream API, not this fork's breaking owned-TLS API.
+Use `go doc` in this working tree and [the migration guide](docs/STRICT_TLS_STATUS.md).
 
 ## Quick Start
 
@@ -86,8 +90,8 @@ argument). CI uploads these logs as `linux-amd64-go-baseline`.
 ML-DSA parameter sets, ambiguous key inputs, and nil/uninitialized keys.
 Internal equality retains broader algorithm capability. Loader checks are not
 authentication. Certificate-path and TLS enforcement now have local test evidence;
-see the [remaining step-4 boundaries](docs/STRICT_TLS_STATUS.md) before relying on
-these APIs.
+see the [owned transport contract and limits](docs/STRICT_TLS_STATUS.md) before
+relying on these APIs.
 
 ## Reporting Security Vulnerabilities
 

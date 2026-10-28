@@ -48,10 +48,11 @@ func run(ctx context.Context) error {
 	// to a server that presents an X.509-SVID having "spiffe://example.org/server"
 	// as its SPIFFE ID.
 	proxy := httputil.NewSingleHostReverseProxy(remote)
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = tlsconfig.TLSClientConfig(
+	// Do not inherit proxy/custom TLS fallbacks from a mutable global transport.
+	transport := &http.Transport{}
+	transport.DialTLSContext = tlsconfig.TLSClientConfig(
 		x509Source, tlsconfig.AuthorizeID(spiffeid.RequireFromString("spiffe://example.org/server")),
-	)
+	).DialContext
 	proxy.Transport = transport
 
 	http.HandleFunc("/", handler(proxy))
@@ -61,10 +62,9 @@ func run(ctx context.Context) error {
 	// the clients.
 	server := &http.Server{
 		Addr:              ":8443",
-		TLSConfig:         tlsconfig.TLSServerConfig(x509Source),
 		ReadHeaderTimeout: time.Second * 10,
 	}
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	if err := tlsconfig.TLSServerConfig(x509Source).ListenAndServe(server); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil

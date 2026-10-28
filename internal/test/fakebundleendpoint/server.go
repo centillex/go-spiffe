@@ -28,6 +28,7 @@ type Server struct {
 	rootCAs *x509.CertPool
 	// TLS configuration used by the server.
 	tlscfg *tls.Config
+	owned  *tlsconfig.Config
 	// SPIFFE bundles that can be returned by this Server.
 	bundles []*spiffebundle.Bundle
 }
@@ -37,10 +38,10 @@ type ServerOption interface {
 }
 
 func New(tb testing.TB, option ...ServerOption) *Server {
-	rootCAs, cert := test.CreateWebCredentials(tb)
+	rootCAs, cert := test.CreatePQWebCredentials(tb)
 	tlscfg := &tls.Config{
 		Certificates: []tls.Certificate{*cert},
-		MinVersion:   tls.VersionTLS12,
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	s := &Server{
@@ -95,7 +96,16 @@ func (s *Server) start() error {
 
 	s.wg.Add(1)
 	go func() {
-		err := s.httpServer.ServeTLS(ln, "", "")
+		var err error
+		if s.owned != nil {
+			var secured net.Listener
+			secured, err = s.owned.Listener(ln)
+			if err == nil {
+				err = s.httpServer.Serve(secured)
+			}
+		} else {
+			err = s.httpServer.ServeTLS(ln, "", "")
+		}
 		assert.EqualError(s.tb, err, http.ErrServerClosed.Error())
 		s.wg.Done()
 		ln.Close()
@@ -132,7 +142,7 @@ func WithTestBundles(bundles ...*spiffebundle.Bundle) ServerOption {
 func WithSPIFFEAuth(bundle *spiffebundle.Bundle, svid *x509svid.SVID) ServerOption {
 	return serverOption(func(s *Server) {
 		s.rootCAs = x509util.NewCertPool(bundle.X509Authorities())
-		s.tlscfg = tlsconfig.TLSServerConfig(svid)
+		s.owned = tlsconfig.TLSServerConfig(svid)
 	})
 }
 

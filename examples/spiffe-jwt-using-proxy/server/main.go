@@ -88,10 +88,9 @@ func run(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              ":8080",
-		TLSConfig:         tlsconfig.TLSServerConfig(x509Source),
 		ReadHeaderTimeout: time.Second * 10,
 	}
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	if err := tlsconfig.TLSServerConfig(x509Source).ListenAndServe(server); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil

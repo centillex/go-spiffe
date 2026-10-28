@@ -2,7 +2,6 @@ package spiffetls
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -24,7 +23,7 @@ func Listen(ctx context.Context, network, laddr string, authorizer tlsconfig.Aut
 }
 
 // NewListener creates an mTLS listener which accepts connections from an inner
-// Listener and wraps each connection with tls.Server. The server X509-SVID is
+// Listener and wraps each connection in an owned TLS connection. The server X509-SVID is
 // obtained via the Workload API along with X.509 bundles used to verify client
 // X509-SVIDs. The client is authorized using the given authorizer.
 //
@@ -52,7 +51,7 @@ func ListenWithMode(ctx context.Context, network, laddr string, mode ListenMode,
 }
 
 // NewListenerWithMode creates a TLS listener which accepts connections from an
-// inner Listener and wraps each connection with tls.Server. The given mode
+// inner Listener and wraps each connection in an owned TLS connection. The given mode
 // controls the authentication and authorization exercised during the TLS
 // handshake.
 func NewListenerWithMode(ctx context.Context, inner net.Listener, mode ListenMode, options ...ListenOption) (_ net.Listener, err error) {
@@ -83,24 +82,26 @@ func NewListenerWithMode(ctx context.Context, inner net.Listener, mode ListenMod
 		option.apply(opt)
 	}
 
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13} // MinVersion is also set by the Hook methods, but just in case..
-	if opt.baseTLSConf != nil {
-		tlsConfig = opt.baseTLSConf.Clone()
-	}
+	tlsOptions := append([]tlsconfig.Option{tlsconfig.WithBaseTLSConfig(opt.baseTLSConf)}, opt.tlsOptions...)
+	var tlsConfig *tlsconfig.Config
 
 	switch m.mode {
 	case tlsServerMode:
-		tlsconfig.HookTLSServerConfig(tlsConfig, m.svid, opt.tlsOptions...)
+		tlsConfig = tlsconfig.TLSServerConfig(m.svid, tlsOptions...)
 	case mtlsServerMode:
-		tlsconfig.HookMTLSServerConfig(tlsConfig, m.svid, m.bundle, m.authorizer, opt.tlsOptions...)
+		tlsConfig = tlsconfig.MTLSServerConfig(m.svid, m.bundle, m.authorizer, tlsOptions...)
 	case mtlsWebServerMode:
-		tlsconfig.HookMTLSWebServerConfig(tlsConfig, m.cert, m.bundle, m.authorizer)
+		tlsConfig = tlsconfig.MTLSWebServerConfig(m.cert, m.bundle, m.authorizer, tlsOptions...)
 	default:
 		return nil, wrapSpiffetlsErr(fmt.Errorf("unknown server mode: %v", m.mode))
 	}
 
+	secured, err := tlsConfig.Listener(inner)
+	if err != nil {
+		return nil, err
+	}
 	return &listener{
-		inner:        tls.NewListener(inner, tlsConfig),
+		inner:        secured,
 		sourceCloser: sourceCloser,
 	}, nil
 }
@@ -115,7 +116,7 @@ func (l *listener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	tlsConn, ok := conn.(*tls.Conn)
+	tlsConn, ok := conn.(*tlsconfig.Conn)
 	if !ok {
 		// This is purely defensive. The TLS listeners return tls.Conn's by contract.
 		conn.Close()
@@ -140,7 +141,7 @@ func (l *listener) Close() error {
 }
 
 type serverConn struct {
-	*tls.Conn
+	*tlsconfig.Conn
 }
 
 // PeerID returns the peer SPIFFE ID on the connection.

@@ -2,13 +2,11 @@ package spiffetls
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 
-	"github.com/spiffe/go-spiffe/v2/internal/pqpolicy"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -52,38 +50,48 @@ func DialWithMode(ctx context.Context, network, addr string, mode DialMode, opti
 		option.apply(opt)
 	}
 
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13} // MinVersion is also set by the Hook methods, but just in case...
-	if opt.baseTLSConf != nil {
-		tlsConfig = opt.baseTLSConf.Clone()
-	}
+	tlsOptions := append([]tlsconfig.Option{tlsconfig.WithBaseTLSConfig(opt.baseTLSConf)}, opt.tlsOptions...)
+	var tlsConfig *tlsconfig.Config
 
 	switch m.mode {
 	case tlsClientMode:
-		tlsconfig.HookTLSClientConfig(tlsConfig, m.bundle, m.authorizer)
+		tlsConfig = tlsconfig.TLSClientConfig(m.bundle, m.authorizer, tlsOptions...)
 	case mtlsClientMode:
-		tlsconfig.HookMTLSClientConfig(tlsConfig, m.svid, m.bundle, m.authorizer, opt.tlsOptions...)
+		tlsConfig = tlsconfig.MTLSClientConfig(m.svid, m.bundle, m.authorizer, tlsOptions...)
 	case mtlsWebClientMode:
-		tlsconfig.HookMTLSWebClientConfig(tlsConfig, m.svid, m.roots, opt.tlsOptions...)
+		tlsConfig = tlsconfig.MTLSWebClientConfig(m.svid, m.roots, tlsOptions...)
 	default:
 		return nil, wrapSpiffetlsErr(fmt.Errorf("unknown client mode: %v", m.mode))
 	}
 
-	var conn *tls.Conn
-	if opt.dialer != nil {
-		conn, err = tls.DialWithDialer(opt.dialer, network, addr, tlsConfig)
-	} else {
-		conn, err = tls.Dial(network, addr, tlsConfig)
+	dialer := opt.dialer
+	if dialer == nil {
+		dialer = &net.Dialer{}
 	}
+	if !dialer.Deadline.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, dialer.Deadline)
+		defer cancel()
+	}
+	if dialer.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, dialer.Timeout)
+		defer cancel()
+	}
+	raw, err := dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, wrapSpiffetlsErr(fmt.Errorf("unable to dial: %w", err))
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		raw.Close()
+		return nil, wrapSpiffetlsErr(err)
+	}
+	conn, err := tlsConfig.Client(ctx, raw, host)
 	if err != nil {
 		return nil, wrapSpiffetlsErr(fmt.Errorf("unable to dial: %w", err))
 	}
 
-	if m.mode == mtlsClientMode || m.mode == mtlsWebClientMode {
-		if err := pqpolicy.CheckMutualTLS(conn.ConnectionState()); err != nil {
-			conn.Close()
-			return nil, wrapSpiffetlsErr(err)
-		}
-	}
 	return &clientConn{
 		Conn:         conn,
 		sourceCloser: sourceCloser,
@@ -91,7 +99,7 @@ func DialWithMode(ctx context.Context, network, addr string, mode DialMode, opti
 }
 
 type clientConn struct {
-	*tls.Conn
+	*tlsconfig.Conn
 	sourceCloser io.Closer
 }
 
