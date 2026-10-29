@@ -12,9 +12,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
 	"github.com/spiffe/go-spiffe/v2/internal/test/fakeworkloadapi"
-	"github.com/spiffe/go-spiffe/v2/proto/spiffe/workload"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
-	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -306,197 +304,12 @@ func TestWatchX509Context(t *testing.T) {
 	assert.Equal(t, 2, backoffStrategy.BackedOff())
 }
 
-func TestFetchJWTSVID(t *testing.T) {
-	ca := test.NewCA(t, td)
-	wl := fakeworkloadapi.New(t)
-	defer wl.Stop()
-	c, _ := New(context.Background(), WithAddr(wl.Addr()))
-	defer c.Close()
-
-	subjectID := spiffeid.RequireFromPath(td, "/subject")
-	audienceID := spiffeid.RequireFromPath(td, "/audience")
-	extraAudienceID := spiffeid.RequireFromPath(td, "/extra_audience")
-	svid := ca.CreateJWTSVID(subjectID, []string{audienceID.String(), extraAudienceID.String()}, test.WithHint("internal usage"))
-	respJWT := makeJWTSVIDResponse(svid)
-	wl.SetJWTSVIDResponse(respJWT)
-
-	params := jwtsvid.Params{
-		Subject:        subjectID,
-		Audience:       audienceID.String(),
-		ExtraAudiences: []string{extraAudienceID.String()},
-	}
-
-	jwtSvid, err := c.FetchJWTSVID(context.Background(), params)
-
-	require.NoError(t, err)
-	assertJWTSVID(t, jwtSvid, subjectID, svid.Marshal(), svid.Hint, audienceID.String(), extraAudienceID.String())
-}
-
-func TestFetchJWTSVIDs(t *testing.T) {
-	ca := test.NewCA(t, td)
-	wl := fakeworkloadapi.New(t)
-	defer wl.Stop()
-	c, _ := New(context.Background(), WithAddr(wl.Addr()))
-	defer c.Close()
-
-	subjectID := spiffeid.RequireFromPath(td, "/subject")
-	extraSubjectID := spiffeid.RequireFromPath(td, "/extra_subject")
-	duplicatedHintID := spiffeid.RequireFromPath(td, "/somePath")
-	audienceID := spiffeid.RequireFromPath(td, "/audience")
-	extraAudienceID := spiffeid.RequireFromPath(td, "/extra_audience")
-	subjectSVID := ca.CreateJWTSVID(subjectID, []string{audienceID.String(), extraAudienceID.String()}, test.WithHint("internal usage"))
-	extraSubjectSVID := ca.CreateJWTSVID(extraSubjectID, []string{audienceID.String(), extraAudienceID.String()}, test.WithHint("external usage"))
-	duplicatedHintSVID := ca.CreateJWTSVID(duplicatedHintID, []string{audienceID.String(), extraAudienceID.String()}, test.WithHint("internal usage"))
-	emptyHintSVID1 := ca.CreateJWTSVID(extraSubjectID, []string{audienceID.String(), extraAudienceID.String()}, test.WithHint(""))
-	emptyHintSVID2 := ca.CreateJWTSVID(duplicatedHintID, []string{audienceID.String(), extraAudienceID.String()}, test.WithHint(""))
-	respJWT := makeJWTSVIDResponse(subjectSVID, extraSubjectSVID, duplicatedHintSVID, emptyHintSVID1, emptyHintSVID2)
-	wl.SetJWTSVIDResponse(respJWT)
-
-	params := jwtsvid.Params{
-		Subject:        subjectID,
-		Audience:       audienceID.String(),
-		ExtraAudiences: []string{extraAudienceID.String()},
-	}
-
-	jwtSvid, err := c.FetchJWTSVIDs(context.Background(), params)
-
-	require.NoError(t, err)
-	// Assert that the response contains the expected SVIDs, and does not contain the SVID with duplicated hint
-	require.Len(t, jwtSvid, 4)
-	assertJWTSVID(t, jwtSvid[0], subjectID, subjectSVID.Marshal(), subjectSVID.Hint, audienceID.String(), extraAudienceID.String())
-	assertJWTSVID(t, jwtSvid[1], extraSubjectID, extraSubjectSVID.Marshal(), extraSubjectSVID.Hint, audienceID.String(), extraAudienceID.String())
-	assertJWTSVID(t, jwtSvid[2], emptyHintSVID1.ID, emptyHintSVID1.Marshal(), emptyHintSVID1.Hint, audienceID.String(), extraAudienceID.String())
-	assertJWTSVID(t, jwtSvid[3], emptyHintSVID2.ID, emptyHintSVID2.Marshal(), emptyHintSVID2.Hint, audienceID.String(), extraAudienceID.String())
-}
-
-func TestFetchJWTBundles(t *testing.T) {
-	ca := test.NewCA(t, td)
-	wl := fakeworkloadapi.New(t)
-	defer wl.Stop()
-	c, err := New(context.Background(), WithAddr(wl.Addr()))
-	require.NoError(t, err)
-	defer c.Close()
-
-	wl.SetJWTBundles(ca.JWTBundle())
-
-	bundleSet, err := c.FetchJWTBundles(context.Background())
-
-	require.NoError(t, err)
-	assertJWTBundle(t, bundleSet, td, ca.JWTBundle())
-}
-
-func TestWatchJWTBundles(t *testing.T) {
-	wl := fakeworkloadapi.New(t)
-	defer wl.Stop()
-
-	backoffStrategy := &testBackoffStrategy{}
-
-	c, err := New(context.Background(), WithAddr(wl.Addr()), WithBackoffStrategy(backoffStrategy))
-	require.NoError(t, err)
-	defer c.Close()
-
-	var wg sync.WaitGroup
-	defer wg.Wait()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	tw := newTestWatcher(t)
-	wg.Add(1)
-	go func() {
-		_ = c.WatchJWTBundles(ctx, tw)
-		wg.Done()
-	}()
-
-	// test PermissionDenied
-	tw.WaitForUpdates(1)
-	require.Len(t, tw.Errors(), 1)
-	require.Len(t, tw.JwtBundles(), 0)
-
-	// test first update
-	ca1 := test.NewCA(t, td)
-	wl.SetJWTBundles(ca1.JWTBundle())
-
-	tw.WaitForUpdates(1)
-
-	require.Len(t, tw.Errors(), 1)
-	update := tw.JwtBundles()[len(tw.JwtBundles())-1]
-	assertJWTBundle(t, update, td, ca1.JWTBundle())
-
-	// test second update
-	ca2 := test.NewCA(t, td)
-	wl.SetJWTBundles(ca2.JWTBundle())
-
-	tw.WaitForUpdates(1)
-
-	require.Len(t, tw.Errors(), 1)
-	update = tw.JwtBundles()[len(tw.JwtBundles())-1]
-	assertJWTBundle(t, update, td, ca2.JWTBundle())
-
-	// test error
-	wl.Stop()
-	tw.WaitForUpdates(1)
-	assert.Len(t, tw.Errors(), 2)
-
-	// Assert that there was the expected number of backoffs.
-	assert.Equal(t, 2, backoffStrategy.BackedOff())
-}
-
-func TestValidateJWTSVID(t *testing.T) {
-	ca := test.NewCA(t, td)
-	wl := fakeworkloadapi.New(t)
-	defer wl.Stop()
-	c, err := New(context.Background(), WithAddr(wl.Addr()))
-	require.NoError(t, err)
-	defer c.Close()
-
-	workloadID := spiffeid.RequireFromPath(td, "/workload")
-	audience := []string{"spiffe://example.org/me", "spiffe://example.org/me_too"}
-	token := ca.CreateJWTSVID(workloadID, audience)
-
-	t.Run("first audience is valid", func(t *testing.T) {
-		jwtSvid, err := c.ValidateJWTSVID(context.Background(), token.Marshal(), audience[0])
-
-		assert.NoError(t, err)
-		assertJWTSVID(t, jwtSvid, workloadID, token.Marshal(), "", audience...)
-	})
-
-	t.Run("second audience is valid", func(t *testing.T) {
-		jwtSvid, err := c.ValidateJWTSVID(context.Background(), token.Marshal(), audience[1])
-
-		assert.NoError(t, err)
-		assertJWTSVID(t, jwtSvid, workloadID, token.Marshal(), "", audience...)
-	})
-
-	t.Run("invalid audience returns error", func(t *testing.T) {
-		jwtSvid, err := c.ValidateJWTSVID(context.Background(), token.Marshal(), "spiffe://example.org/not_me")
-
-		assert.NotNil(t, err)
-		assert.Nil(t, jwtSvid)
-	})
-}
-
 func makeX509SVIDs(ca *test.CA, hint string, ids ...spiffeid.ID) []*x509svid.SVID {
 	svids := []*x509svid.SVID{}
 	for _, id := range ids {
 		svids = append(svids, ca.CreateX509SVID(id, test.WithHint(hint)))
 	}
 	return svids
-}
-
-func makeJWTSVIDResponse(svids ...*jwtsvid.SVID) *workload.JWTSVIDResponse {
-	respSVIDS := []*workload.JWTSVID{}
-	for _, svid := range svids {
-		respSVID := &workload.JWTSVID{
-			SpiffeId: svid.ID.String(),
-			Svid:     svid.Marshal(),
-			Hint:     svid.Hint,
-		}
-		respSVIDS = append(respSVIDS, respSVID)
-	}
-	return &workload.JWTSVIDResponse{
-		Svids: respSVIDS,
-	}
 }
 
 func assertX509SVID(tb testing.TB, svid *x509svid.SVID, spiffeID spiffeid.ID, certificates []*x509.Certificate, hint string) {
@@ -510,21 +323,6 @@ func assertX509Bundle(tb testing.TB, bundleSet *x509bundle.Set, trustDomain spif
 	b, ok := bundleSet.Get(trustDomain)
 	require.True(tb, ok)
 	assert.Equal(tb, b, expectedBundle)
-}
-
-func assertJWTBundle(tb testing.TB, bundleSet *jwtbundle.Set, trustDomain spiffeid.TrustDomain, expectedBundle *jwtbundle.Bundle) {
-	b, ok := bundleSet.Get(trustDomain)
-	require.True(tb, ok)
-	assert.Equal(tb, b, expectedBundle)
-}
-
-func assertJWTSVID(t testing.TB, jwtSvid *jwtsvid.SVID, subjectID spiffeid.ID, token, hint string, audience ...string) {
-	assert.Equal(t, subjectID.String(), jwtSvid.ID.String())
-	assert.Equal(t, audience, jwtSvid.Audience)
-	assert.NotNil(t, jwtSvid.Claims)
-	assert.NotEmpty(t, jwtSvid.Expiry)
-	assert.Equal(t, token, jwtSvid.Marshal())
-	assert.Equal(t, hint, jwtSvid.Hint)
 }
 
 type testWatcher struct {

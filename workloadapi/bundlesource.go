@@ -2,7 +2,6 @@ package workloadapi
 
 import (
 	"context"
-	"crypto"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -20,7 +20,6 @@ type BundleSource struct {
 
 	mtx             sync.RWMutex
 	x509Authorities map[spiffeid.TrustDomain][]*x509.Certificate
-	jwtAuthorities  map[spiffeid.TrustDomain]map[string]crypto.PublicKey
 
 	closeMtx sync.RWMutex
 	closed   bool
@@ -37,10 +36,11 @@ func NewBundleSource(ctx context.Context, options ...BundleSourceOption) (_ *Bun
 
 	s := &BundleSource{
 		x509Authorities: make(map[spiffeid.TrustDomain][]*x509.Certificate),
-		jwtAuthorities:  make(map[spiffeid.TrustDomain]map[string]crypto.PublicKey),
 	}
 
-	s.watcher, err = newWatcher(ctx, config.watcher, s.setX509Context, s.setJWTBundles)
+	// JWT bundle watching is deliberately not started: token trust is outside
+	// the strict profile and must not be merged into X.509 bundles.
+	s.watcher, err = newWatcher(ctx, config.watcher, s.setX509Context, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -69,18 +69,12 @@ func (s *BundleSource) GetBundleForTrustDomain(trustDomain spiffeid.TrustDomain)
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 
-	x509Authorities, hasX509Authorities := s.x509Authorities[trustDomain]
-	jwtAuthorities, hasJWTAuthorities := s.jwtAuthorities[trustDomain]
-	if !hasX509Authorities && !hasJWTAuthorities {
+	x509Authorities, ok := s.x509Authorities[trustDomain]
+	if !ok {
 		return nil, wrapBundlesourceErr(fmt.Errorf("no SPIFFE bundle for trust domain %q", trustDomain))
 	}
 	bundle := spiffebundle.New(trustDomain)
-	if hasX509Authorities {
-		bundle.SetX509Authorities(x509Authorities)
-	}
-	if hasJWTAuthorities {
-		bundle.SetJWTAuthorities(jwtAuthorities)
-	}
+	bundle.SetX509Authorities(x509Authorities)
 	return bundle, nil
 }
 
@@ -100,20 +94,10 @@ func (s *BundleSource) GetX509BundleForTrustDomain(trustDomain spiffeid.TrustDom
 	return x509bundle.FromX509Authorities(trustDomain, x509Authorities), nil
 }
 
-// GetJWTBundleForTrustDomain returns the JWT bundle for the given trust
-// domain. It implements the jwtbundle.Source interface.
+// GetJWTBundleForTrustDomain is unsupported: JWT trust is outside the strict
+// profile and is never merged into this source.
 func (s *BundleSource) GetJWTBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*jwtbundle.Bundle, error) {
-	if err := s.checkClosed(); err != nil {
-		return nil, err
-	}
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-
-	jwtAuthorities, hasJWTAuthorities := s.jwtAuthorities[trustDomain]
-	if !hasJWTAuthorities {
-		return nil, wrapBundlesourceErr(fmt.Errorf("no JWT bundle for trust domain %q", trustDomain))
-	}
-	return jwtbundle.FromJWTAuthorities(trustDomain, jwtAuthorities), nil
+	return nil, pqprofile.Unsupported("workloadapi.BundleSource.GetJWTBundleForTrustDomain")
 }
 
 // WaitUntilUpdated waits until the source is updated or the context is done,
@@ -149,31 +133,6 @@ func (s *BundleSource) setX509Context(x509Context *X509Context) {
 			continue
 		}
 		delete(s.x509Authorities, existingTD)
-	}
-}
-
-func (s *BundleSource) setJWTBundles(bundles *jwtbundle.Set) {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
-	newBundles := bundles.Bundles()
-
-	// Add/replace the JWT authorities from the JWT bundles. Track the trust
-	// domains represented in the new JWT bundles so we can determine which
-	// existing trust domains are no longer represented.
-	trustDomains := make(map[spiffeid.TrustDomain]struct{}, len(newBundles))
-	for _, newBundle := range newBundles {
-		trustDomains[newBundle.TrustDomain()] = struct{}{}
-		s.jwtAuthorities[newBundle.TrustDomain()] = newBundle.JWTAuthorities()
-	}
-
-	// Remove the JWT authority entries for trust domains no longer represented
-	// in the JWT bundles.
-	for existingTD := range s.jwtAuthorities {
-		if _, ok := trustDomains[existingTD]; ok {
-			continue
-		}
-		delete(s.jwtAuthorities, existingTD)
 	}
 }
 

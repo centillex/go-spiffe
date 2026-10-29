@@ -1,20 +1,23 @@
+// Package jwtbundle provides JWT bundle types.
+//
+// JWT-SVID trust is outside the qspiffe-pq-v1 profile. This build keeps the
+// package's identifiers so callers fail explicitly and consistently instead of
+// falling back to classical token algorithms: every admission, parsing and
+// lookup operation reports pqprofile.ErrUnsupported or yields no authorities.
 package jwtbundle
 
 import (
 	"crypto"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
-	"os"
 	"sync"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/spiffe/go-spiffe/v2/internal/jwtutil"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
-// Bundle is a collection of trusted JWT authorities for a trust domain.
+// Bundle is a collection of trusted JWT authorities for a trust domain. Under
+// the strict profile it never holds any authority.
 type Bundle struct {
 	trustDomain spiffeid.TrustDomain
 
@@ -22,7 +25,7 @@ type Bundle struct {
 	jwtAuthorities map[string]crypto.PublicKey
 }
 
-// New creates a new bundle.
+// New creates a new, permanently empty bundle.
 func New(trustDomain spiffeid.TrustDomain) *Bundle {
 	return &Bundle{
 		trustDomain:    trustDomain,
@@ -30,49 +33,26 @@ func New(trustDomain spiffeid.TrustDomain) *Bundle {
 	}
 }
 
-// FromJWTAuthorities creates a new bundle from JWT authorities
+// FromJWTAuthorities returns an empty bundle. JWT authorities are not admitted
+// under the strict profile; callers that can surface an error should use
+// pqprofile.ErrUnsupported detection instead of relying on this constructor.
 func FromJWTAuthorities(trustDomain spiffeid.TrustDomain, jwtAuthorities map[string]crypto.PublicKey) *Bundle {
-	return &Bundle{
-		trustDomain:    trustDomain,
-		jwtAuthorities: jwtutil.CopyJWTAuthorities(jwtAuthorities),
-	}
+	return New(trustDomain)
 }
 
-// Load loads a bundle from a file on disk. The file must contain a standard RFC 7517 JWKS document.
+// Load is unsupported: a JWT bundle cannot be admitted under the strict profile.
 func Load(trustDomain spiffeid.TrustDomain, path string) (*Bundle, error) {
-	bundleBytes, err := os.ReadFile(path)
-	if err != nil {
-		return nil, wrapJwtbundleErr(fmt.Errorf("unable to read JWT bundle: %w", err))
-	}
-
-	return Parse(trustDomain, bundleBytes)
+	return nil, pqprofile.Unsupported("jwtbundle.Load")
 }
 
-// Read decodes a bundle from a reader. The contents must contain a standard RFC 7517 JWKS document.
+// Read is unsupported: a JWT bundle cannot be admitted under the strict profile.
 func Read(trustDomain spiffeid.TrustDomain, r io.Reader) (*Bundle, error) {
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return nil, wrapJwtbundleErr(fmt.Errorf("unable to read: %v", err))
-	}
-
-	return Parse(trustDomain, b)
+	return nil, pqprofile.Unsupported("jwtbundle.Read")
 }
 
-// Parse parses a bundle from bytes. The data must be a standard RFC 7517 JWKS document.
+// Parse is unsupported: a JWT bundle cannot be admitted under the strict profile.
 func Parse(trustDomain spiffeid.TrustDomain, bundleBytes []byte) (*Bundle, error) {
-	jwks := new(jose.JSONWebKeySet)
-	if err := json.Unmarshal(bundleBytes, jwks); err != nil {
-		return nil, wrapJwtbundleErr(fmt.Errorf("unable to parse JWKS: %v", err))
-	}
-
-	bundle := New(trustDomain)
-	for i, key := range jwks.Keys {
-		if err := bundle.AddJWTAuthority(key.KeyID, key.Key); err != nil {
-			return nil, wrapJwtbundleErr(fmt.Errorf("error adding authority %d of JWKS: %v", i, errors.Unwrap(err)))
-		}
-	}
-
-	return bundle, nil
+	return nil, pqprofile.Unsupported("jwtbundle.Parse")
 }
 
 // TrustDomain returns the trust domain that the bundle belongs to.
@@ -80,7 +60,7 @@ func (b *Bundle) TrustDomain() spiffeid.TrustDomain {
 	return b.trustDomain
 }
 
-// JWTAuthorities returns the JWT authorities in the bundle, keyed by key ID.
+// JWTAuthorities returns an empty map. JWT authorities are outside the profile.
 func (b *Bundle) JWTAuthorities() map[string]crypto.PublicKey {
 	b.mtx.RLock()
 	defer b.mtx.RUnlock()
@@ -88,115 +68,55 @@ func (b *Bundle) JWTAuthorities() map[string]crypto.PublicKey {
 	return jwtutil.CopyJWTAuthorities(b.jwtAuthorities)
 }
 
-// FindJWTAuthority finds the JWT authority with the given key ID from the bundle. If the authority
-// is found, it is returned and the boolean is true. Otherwise, the returned
-// value is nil and the boolean is false.
+// FindJWTAuthority always reports that no authority is present.
 func (b *Bundle) FindJWTAuthority(keyID string) (crypto.PublicKey, bool) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	if jwtAuthority, ok := b.jwtAuthorities[keyID]; ok {
-		return jwtAuthority, true
-	}
 	return nil, false
 }
 
-// HasJWTAuthority returns true if the bundle has a JWT authority with the given key ID.
+// HasJWTAuthority always reports that no authority is present.
 func (b *Bundle) HasJWTAuthority(keyID string) bool {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	_, ok := b.jwtAuthorities[keyID]
-	return ok
+	return false
 }
 
-// AddJWTAuthority adds a JWT authority to the bundle. If a JWT authority already exists
-// under the given key ID, it is replaced. A key ID must be specified.
+// AddJWTAuthority is unsupported: authorities are never admitted.
 func (b *Bundle) AddJWTAuthority(keyID string, jwtAuthority crypto.PublicKey) error {
-	if keyID == "" {
-		return wrapJwtbundleErr(errors.New("keyID cannot be empty"))
-	}
-
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.jwtAuthorities[keyID] = jwtAuthority
-	return nil
+	return pqprofile.Unsupported("jwtbundle.AddJWTAuthority")
 }
 
-// RemoveJWTAuthority removes the JWT authority identified by the key ID from the bundle.
-func (b *Bundle) RemoveJWTAuthority(keyID string) {
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
+// RemoveJWTAuthority is a no-op; the bundle never contains authorities.
+func (b *Bundle) RemoveJWTAuthority(keyID string) {}
 
-	delete(b.jwtAuthorities, keyID)
-}
+// SetJWTAuthorities is a no-op; authorities are never admitted.
+func (b *Bundle) SetJWTAuthorities(jwtAuthorities map[string]crypto.PublicKey) {}
 
-// SetJWTAuthorities sets the JWT authorities in the bundle.
-func (b *Bundle) SetJWTAuthorities(jwtAuthorities map[string]crypto.PublicKey) {
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.jwtAuthorities = jwtutil.CopyJWTAuthorities(jwtAuthorities)
-}
-
-// Empty returns true if the bundle has no JWT authorities.
+// Empty always returns true under the strict profile.
 func (b *Bundle) Empty() bool {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	return len(b.jwtAuthorities) == 0
+	return true
 }
 
-// Marshal marshals the JWT bundle into a standard RFC 7517 JWKS document. The
-// JWKS does not contain any SPIFFE-specific parameters.
+// Marshal is unsupported: there is no JWT bundle representation in the profile.
 func (b *Bundle) Marshal() ([]byte, error) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	jwks := jose.JSONWebKeySet{Keys: make([]jose.JSONWebKey, 0, len(b.jwtAuthorities))}
-	for keyID, jwtAuthority := range b.jwtAuthorities {
-		jwks.Keys = append(jwks.Keys, jose.JSONWebKey{
-			Key:   jwtAuthority,
-			KeyID: keyID,
-		})
-	}
-
-	return json.Marshal(jwks)
+	return nil, pqprofile.Unsupported("jwtbundle.Marshal")
 }
 
-// Clone clones the bundle.
+// Clone clones the bundle. The clone is also empty.
 func (b *Bundle) Clone() *Bundle {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	return FromJWTAuthorities(b.trustDomain, b.jwtAuthorities)
+	if b == nil {
+		return nil
+	}
+	return New(b.trustDomain)
 }
 
-// Equal compares the bundle for equality against the given bundle.
+// Equal compares the bundle for equality against the given bundle. Since no
+// authorities can be admitted, equality is trust-domain equality.
 func (b *Bundle) Equal(other *Bundle) bool {
 	if b == nil || other == nil {
 		return b == other
 	}
-
-	return b.trustDomain == other.trustDomain &&
-		jwtutil.JWTAuthoritiesEqual(b.jwtAuthorities, other.jwtAuthorities)
+	return b.trustDomain == other.trustDomain
 }
 
-// GetJWTBundleForTrustDomain returns the JWT bundle for the given trust
-// domain. It implements the Source interface. An error will be returned if
-// the trust domain does not match that of the bundle.
+// GetJWTBundleForTrustDomain is unsupported: JWT bundles are not served.
 func (b *Bundle) GetJWTBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*Bundle, error) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	if b.trustDomain != trustDomain {
-		return nil, wrapJwtbundleErr(fmt.Errorf("no JWT bundle for trust domain %q", trustDomain))
-	}
-
-	return b, nil
-}
-
-func wrapJwtbundleErr(err error) error {
-	return fmt.Errorf("jwtbundle: %w", err)
+	return nil, pqprofile.Unsupported("jwtbundle.GetJWTBundleForTrustDomain")
 }

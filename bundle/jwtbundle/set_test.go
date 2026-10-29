@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 )
@@ -44,12 +45,11 @@ func TestHas(t *testing.T) {
 	require.True(t, s.Has(td))
 }
 
-func TestSetGetJWTBundleForTrustDomain(t *testing.T) {
+func TestSetGetJWTBundleForTrustDomainIsUnsupported(t *testing.T) {
 	s := jwtbundle.NewSet(b1)
-	_, err := s.GetJWTBundleForTrustDomain(td2)
-	require.EqualError(t, err, `jwtbundle: no JWT bundle for trust domain "example-2.org"`)
-
-	b, err := s.GetJWTBundleForTrustDomain(td)
-	require.NoError(t, err)
-	require.Equal(t, b1, b)
+	for _, trustDomain := range []spiffeid.TrustDomain{td, td2} {
+		b, err := s.GetJWTBundleForTrustDomain(trustDomain)
+		require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+		require.Nil(t, b)
+	}
 }

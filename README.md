@@ -4,7 +4,7 @@ This library is a convenient Go library for working with [SPIFFE](https://spiffe
 
 It leverages the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md), providing high level functionality that includes:
 * Establishing mutually authenticated TLS (__mTLS__) between workloads powered by SPIFFE.
-* Obtaining and validating [X509-SVIDs](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md) and [JWT-SVIDs](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md).
+* Obtaining and validating [X509-SVIDs](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md). JWT-SVID and WIT operations are rejected by this strict profile.
 * Federating trust between trust domains using [SPIFFE bundles](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Trust_Domain_and_Bundle.md#3-spiffe-bundles).
 * Bundle management.
 
@@ -15,12 +15,15 @@ SDK or production-ready PQ deployment**. [Certificate-path and transport
 enforcement](docs/STRICT_TLS_STATUS.md) now uses owned configurations and
 connections. Constructors return `*tlsconfig.Config`, not mutable `*tls.Config`;
 legacy hook/certificate-only authentication APIs fail explicitly. See the linked
-migration guide before upgrading. Token APIs still exist; JWT-SVID/WIT must not
-be used as PQ authentication. [ML-DSA bundle encoding and strict X.509
-admission](docs/PQ_BUNDLE_FORMAT.md) now include an independently implemented
-format round trip. Real deployment, lifecycle, token rejection, independent TLS
-interoperability, and independent review remain open. The complete
-workspace roadmap is `../docs/IMPLEMENTATION_PLAN.md` (outside this Go module).
+migration guide before upgrading. [JWT-SVID and WIT operations are explicitly
+unsupported](docs/TOKEN_UNSUPPORTED.md): every public token entry point reports
+`pqprofile.ErrUnsupported` and no classical fallback exists. [ML-DSA bundle
+encoding and strict X.509 admission](docs/PQ_BUNDLE_FORMAT.md) include an
+independently implemented format round trip. A local two-domain PQ deployment is
+recorded in [the deployment status](docs/REAL_DEPLOYMENT_STATUS.md). Lifecycle
+and recovery, secure attestation review, independent TLS/issuer interoperability,
+and independent security review remain open. The complete workspace roadmap is
+`../docs/IMPLEMENTATION_PLAN.md` (outside this Go module).
 
 ## Documentation
 

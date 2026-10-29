@@ -4,15 +4,14 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/exp/svid/witsvid"
 	"github.com/spiffe/go-spiffe/v2/logger"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/proto/spiffe/workload"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
@@ -169,91 +168,30 @@ func (c *Client) WatchX509Context(ctx context.Context, watcher X509ContextWatche
 
 // FetchJWTSVID fetches a JWT-SVID.
 func (c *Client) FetchJWTSVID(ctx context.Context, params jwtsvid.Params) (*jwtsvid.SVID, error) {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	audience := append([]string{params.Audience}, params.ExtraAudiences...)
-	resp, err := c.wlClient.FetchJWTSVID(ctx, &workload.JWTSVIDRequest{
-		SpiffeId: params.Subject.String(),
-		Audience: audience,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	svids, err := parseJWTSVIDs(resp, audience, true)
-	if err != nil {
-		return nil, err
-	}
-
-	return svids[0], nil
+	return nil, pqprofile.Unsupported("workloadapi.Client.FetchJWTSVID")
 }
 
 // FetchJWTSVIDs fetches all JWT-SVIDs.
 func (c *Client) FetchJWTSVIDs(ctx context.Context, params jwtsvid.Params) ([]*jwtsvid.SVID, error) {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	audience := append([]string{params.Audience}, params.ExtraAudiences...)
-	resp, err := c.wlClient.FetchJWTSVID(ctx, &workload.JWTSVIDRequest{
-		SpiffeId: params.Subject.String(),
-		Audience: audience,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return parseJWTSVIDs(resp, audience, false)
+	return nil, pqprofile.Unsupported("workloadapi.Client.FetchJWTSVIDs")
 }
 
 // FetchJWTBundles fetches the JWT bundles for JWT-SVID validation, keyed
 // by a SPIFFE ID of the trust domain to which they belong.
 func (c *Client) FetchJWTBundles(ctx context.Context) (*jwtbundle.Set, error) {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	stream, err := c.wlClient.FetchJWTBundles(ctx, &workload.JWTBundlesRequest{})
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, err
-	}
-
-	return parseJWTSVIDBundles(resp)
+	return nil, pqprofile.Unsupported("workloadapi.Client.FetchJWTBundles")
 }
 
 // WatchJWTBundles watches for changes to the JWT bundles. The watcher receives
 // the updated JWT bundles.
 func (c *Client) WatchJWTBundles(ctx context.Context, watcher JWTBundleWatcher) error {
-	backoff := c.config.backoffStrategy.NewBackoff()
-	for {
-		err := c.watchJWTBundles(ctx, watcher, backoff)
-		watcher.OnJWTBundlesWatchError(err)
-		err = c.handleWatchError(ctx, err, backoff)
-		if err != nil {
-			return err
-		}
-	}
+	return pqprofile.Unsupported("workloadapi.Client.WatchJWTBundles")
 }
 
 // ValidateJWTSVID validates the JWT-SVID token. The parsed and validated
 // JWT-SVID is returned.
 func (c *Client) ValidateJWTSVID(ctx context.Context, token, audience string) (*jwtsvid.SVID, error) {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	_, err := c.wlClient.ValidateJWTSVID(ctx, &workload.ValidateJWTSVIDRequest{
-		Svid:     token,
-		Audience: audience,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return jwtsvid.ParseInsecure(token, []string{audience})
+	return nil, pqprofile.Unsupported("workloadapi.Client.ValidateJWTSVID")
 }
 
 // FetchWITSVID fetches the default WIT-SVID (i.e. the first in the list
@@ -262,11 +200,7 @@ func (c *Client) ValidateJWTSVID(ctx context.Context, token, audience string) (*
 //
 // Experimental: subject to change.
 func (c *Client) FetchWITSVID(ctx context.Context, spiffeID string) (*witsvid.SVID, error) {
-	svids, err := c.fetchWITSVIDs(ctx, spiffeID, true)
-	if err != nil {
-		return nil, err
-	}
-	return svids[0], nil
+	return nil, pqprofile.Unsupported("workloadapi.Client.FetchWITSVID")
 }
 
 // FetchWITSVIDs fetches all WIT-SVIDs. An optional SPIFFE ID may be provided
@@ -274,7 +208,7 @@ func (c *Client) FetchWITSVID(ctx context.Context, spiffeID string) (*witsvid.SV
 //
 // Experimental: subject to change.
 func (c *Client) FetchWITSVIDs(ctx context.Context, spiffeID string) ([]*witsvid.SVID, error) {
-	return c.fetchWITSVIDs(ctx, spiffeID, false)
+	return nil, pqprofile.Unsupported("workloadapi.Client.FetchWITSVIDs")
 }
 
 // WatchWITSVIDs watches for WIT-SVID updates. The watcher receives the updated
@@ -285,18 +219,7 @@ func (c *Client) FetchWITSVIDs(ctx context.Context, spiffeID string) ([]*witsvid
 //
 // Experimental: subject to change.
 func (c *Client) WatchWITSVIDs(ctx context.Context, watcher WITSVIDWatcher, spiffeID string) error {
-	backoff := c.config.backoffStrategy.NewBackoff()
-	for {
-		err := c.watchWITSVIDs(ctx, watcher, backoff, spiffeID)
-		watcher.OnWITSVIDsWatchError(err)
-		if status.Code(err) == codes.Unimplemented {
-			c.config.log.Errorf("WIT-SVID profile not supported by server: %v", err)
-			return err
-		}
-		if err = c.handleWatchError(ctx, err, backoff); err != nil {
-			return err
-		}
-	}
+	return pqprofile.Unsupported("workloadapi.Client.WatchWITSVIDs")
 }
 
 // FetchWITBundles fetches the WIT bundles for WIT-SVID validation, keyed by
@@ -304,20 +227,7 @@ func (c *Client) WatchWITSVIDs(ctx context.Context, watcher WITSVIDWatcher, spif
 //
 // Experimental: subject to change.
 func (c *Client) FetchWITBundles(ctx context.Context) (*witbundle.Set, error) {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	stream, err := c.wlClient.FetchWITBundles(ctx, &workload.WITBundlesRequest{})
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, err
-	}
-
-	return parseWITBundles(resp)
+	return nil, pqprofile.Unsupported("workloadapi.Client.FetchWITBundles")
 }
 
 // WatchWITBundles watches for changes to the WIT bundles. The watcher receives
@@ -328,165 +238,7 @@ func (c *Client) FetchWITBundles(ctx context.Context) (*witbundle.Set, error) {
 //
 // Experimental: subject to change.
 func (c *Client) WatchWITBundles(ctx context.Context, watcher WITBundleWatcher) error {
-	backoff := c.config.backoffStrategy.NewBackoff()
-	for {
-		err := c.watchWITBundles(ctx, watcher, backoff)
-		watcher.OnWITBundlesWatchError(err)
-		if status.Code(err) == codes.Unimplemented {
-			c.config.log.Errorf("WIT bundle profile not supported by server: %v", err)
-			return err
-		}
-		if err = c.handleWatchError(ctx, err, backoff); err != nil {
-			return err
-		}
-	}
-}
-
-func (c *Client) fetchWITSVIDs(ctx context.Context, spiffeID string, firstOnly bool) ([]*witsvid.SVID, error) {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	stream, err := c.wlClient.FetchWITSVID(ctx, &workload.WITSVIDRequest{
-		SpiffeId: spiffeID,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, err
-	}
-
-	return parseWITSVIDs(resp, firstOnly)
-}
-
-func (c *Client) watchWITSVIDs(ctx context.Context, watcher WITSVIDWatcher, backoff Backoff, spiffeID string) error {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	c.config.log.Debugf("Watching WIT-SVIDs")
-	stream, err := c.wlClient.FetchWITSVID(ctx, &workload.WITSVIDRequest{
-		SpiffeId: spiffeID,
-	})
-	if err != nil {
-		return err
-	}
-
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-
-		backoff.Reset()
-		svids, err := parseWITSVIDs(resp, false)
-		if err != nil {
-			c.config.log.Errorf("Failed to parse WIT-SVID response: %v", err)
-			watcher.OnWITSVIDsWatchError(err)
-			continue
-		}
-		watcher.OnWITSVIDsUpdate(svids)
-	}
-}
-
-func (c *Client) watchWITBundles(ctx context.Context, watcher WITBundleWatcher, backoff Backoff) error {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	c.config.log.Debugf("Watching WIT bundles")
-	stream, err := c.wlClient.FetchWITBundles(ctx, &workload.WITBundlesRequest{})
-	if err != nil {
-		return err
-	}
-
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-
-		backoff.Reset()
-		bundleSet, err := parseWITBundles(resp)
-		if err != nil {
-			c.config.log.Errorf("Failed to parse WIT bundle response: %v", err)
-			watcher.OnWITBundlesWatchError(err)
-			continue
-		}
-		watcher.OnWITBundlesUpdate(bundleSet)
-	}
-}
-
-func parseWITSVIDs(resp *workload.WITSVIDResponse, firstOnly bool) ([]*witsvid.SVID, error) {
-	n := len(resp.Svids)
-	if n == 0 {
-		return nil, errors.New("no WIT-SVIDs in response")
-	}
-	if firstOnly {
-		n = 1
-	}
-
-	hints := make(map[string]struct{}, n)
-	svids := make([]*witsvid.SVID, 0, n)
-	for i := range n {
-		s := resp.Svids[i]
-		// In the event of more than one WITSVID with the same hint value set,
-		// the first message in the list SHOULD be selected.
-		if _, ok := hints[s.Hint]; ok && s.Hint != "" {
-			continue
-		}
-		hints[s.Hint] = struct{}{}
-
-		if s.WitSvidKey == "" {
-			return nil, fmt.Errorf("missing private key for SVID with SPIFFE ID %q", s.SpiffeId)
-		}
-
-		svid, err := witsvid.ParseInsecure(s.WitSvid)
-		if err != nil {
-			return nil, err
-		}
-
-		privKey, err := parseJWKPrivateKey(s.WitSvidKey)
-		if err != nil {
-			return nil, err
-		}
-		svid.PrivateKey = privKey
-
-		svid.Hint = s.Hint
-		svids = append(svids, svid)
-	}
-
-	return svids, nil
-}
-
-func parseWITBundles(resp *workload.WITBundlesResponse) (*witbundle.Set, error) {
-	bundles := make([]*witbundle.Bundle, 0, len(resp.Bundles))
-
-	for tdID, bundleStr := range resp.Bundles {
-		td, err := spiffeid.TrustDomainFromString(tdID)
-		if err != nil {
-			return nil, err
-		}
-
-		b, err := witbundle.Parse(td, []byte(bundleStr))
-		if err != nil {
-			return nil, err
-		}
-		bundles = append(bundles, b)
-	}
-
-	return witbundle.NewSet(bundles...), nil
-}
-
-func parseJWKPrivateKey(jwkStr string) (any, error) {
-	var jwkKey jose.JSONWebKey
-	if err := jwkKey.UnmarshalJSON([]byte(jwkStr)); err != nil {
-		return nil, fmt.Errorf("unable to parse private key JWK: %w", err)
-	}
-	if jwkKey.IsPublic() {
-		return nil, errors.New("expected private key JWK, got public key")
-	}
-	return jwkKey.Key, nil
+	return pqprofile.Unsupported("workloadapi.Client.WatchWITBundles")
 }
 
 // WITSVIDWatcher receives WIT-SVID updates from the Workload API.
@@ -568,33 +320,6 @@ func (c *Client) watchX509Context(ctx context.Context, watcher X509ContextWatche
 			continue
 		}
 		watcher.OnX509ContextUpdate(x509Context)
-	}
-}
-
-func (c *Client) watchJWTBundles(ctx context.Context, watcher JWTBundleWatcher, backoff Backoff) error {
-	ctx, cancel := context.WithCancel(withHeader(ctx))
-	defer cancel()
-
-	c.config.log.Debugf("Watching JWT bundles")
-	stream, err := c.wlClient.FetchJWTBundles(ctx, &workload.JWTBundlesRequest{})
-	if err != nil {
-		return err
-	}
-
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-
-		backoff.Reset()
-		jwtbundleSet, err := parseJWTSVIDBundles(resp)
-		if err != nil {
-			c.config.log.Errorf("Failed to parse JWT bundle response: %v", err)
-			watcher.OnJWTBundlesWatchError(err)
-			continue
-		}
-		watcher.OnJWTBundlesUpdate(jwtbundleSet)
 	}
 }
 
@@ -777,52 +502,3 @@ func parseX509BundlesResponse(resp *workload.X509BundlesResponse) (*x509bundle.S
 // parseJWTSVIDs parses one or all of the SVIDs in the response. If firstOnly
 // is true, then only the first SVID in the response is parsed and returned.
 // Otherwise, all SVIDs are parsed and returned.
-func parseJWTSVIDs(resp *workload.JWTSVIDResponse, audience []string, firstOnly bool) ([]*jwtsvid.SVID, error) {
-	n := len(resp.Svids)
-	if n == 0 {
-		return nil, errors.New("there were no SVIDs in the response")
-	}
-	if firstOnly {
-		n = 1
-	}
-
-	hints := make(map[string]struct{}, n)
-	svids := make([]*jwtsvid.SVID, 0, n)
-	for i := 0; i < n; i++ {
-		svid := resp.Svids[i]
-		// In the event of more than one X509SVID message with the same hint value set, then the first message in the
-		// list SHOULD be selected.
-		if _, ok := hints[svid.Hint]; ok && svid.Hint != "" {
-			continue
-		}
-		hints[svid.Hint] = struct{}{}
-
-		s, err := jwtsvid.ParseInsecure(svid.Svid, audience)
-		if err != nil {
-			return nil, err
-		}
-		s.Hint = svid.Hint
-		svids = append(svids, s)
-	}
-
-	return svids, nil
-}
-
-func parseJWTSVIDBundles(resp *workload.JWTBundlesResponse) (*jwtbundle.Set, error) {
-	bundles := []*jwtbundle.Bundle{}
-
-	for tdID, b := range resp.Bundles {
-		td, err := spiffeid.TrustDomainFromString(tdID)
-		if err != nil {
-			return nil, err
-		}
-
-		b, err := jwtbundle.Parse(td, b)
-		if err != nil {
-			return nil, err
-		}
-		bundles = append(bundles, b)
-	}
-
-	return jwtbundle.NewSet(bundles...), nil
-}

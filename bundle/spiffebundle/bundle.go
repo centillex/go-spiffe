@@ -3,7 +3,6 @@ package spiffebundle
 import (
 	"crypto"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/internal/jwtutil"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -86,12 +86,10 @@ func FromX509Bundle(x509Bundle *x509bundle.Bundle) *Bundle {
 	return bundle
 }
 
-// FromJWTBundle creates a bundle from a JWT bundle.
-// The function panics in case of a nil JWT bundle.
+// FromJWTBundle returns an empty bundle for the JWT bundle's trust domain.
+// JWT authorities are outside the strict profile and are never admitted.
 func FromJWTBundle(jwtBundle *jwtbundle.Bundle) *Bundle {
-	bundle := New(jwtBundle.TrustDomain())
-	bundle.jwtAuthorities = jwtBundle.JWTAuthorities()
-	return bundle
+	return New(jwtBundle.TrustDomain())
 }
 
 // FromX509Authorities creates a bundle from X.509 certificates.
@@ -101,26 +99,22 @@ func FromX509Authorities(trustDomain spiffeid.TrustDomain, x509Authorities []*x5
 	return bundle
 }
 
-// FromJWTAuthorities creates a new bundle from JWT authorities.
+// FromJWTAuthorities returns an empty bundle. JWT authorities are outside the
+// strict profile and are never admitted.
 func FromJWTAuthorities(trustDomain spiffeid.TrustDomain, jwtAuthorities map[string]crypto.PublicKey) *Bundle {
-	bundle := New(trustDomain)
-	bundle.jwtAuthorities = jwtutil.CopyJWTAuthorities(jwtAuthorities)
-	return bundle
+	return New(trustDomain)
 }
 
-// FromWITAuthorities creates a new bundle from WIT authorities.
+// FromWITAuthorities returns an empty bundle. WIT authorities are outside the
+// strict profile and are never admitted.
 func FromWITAuthorities(trustDomain spiffeid.TrustDomain, witAuthorities map[string]crypto.PublicKey) *Bundle {
-	bundle := New(trustDomain)
-	bundle.witAuthorities = jwtutil.CopyJWTAuthorities(witAuthorities)
-	return bundle
+	return New(trustDomain)
 }
 
-// FromWITBundle creates a bundle from a WIT bundle.
-// The function panics in case of a nil WIT bundle.
+// FromWITBundle returns an empty bundle for the WIT bundle's trust domain.
+// WIT authorities are outside the strict profile and are never admitted.
 func FromWITBundle(witBundle *witbundle.Bundle) *Bundle {
-	bundle := New(witBundle.TrustDomain())
-	bundle.witAuthorities = witBundle.WITAuthorities()
-	return bundle
+	return New(witBundle.TrustDomain())
 }
 
 // TrustDomain returns the trust domain that the bundle belongs to.
@@ -197,34 +191,18 @@ func (b *Bundle) JWTAuthorities() map[string]crypto.PublicKey {
 // is found, it is returned and the boolean is true. Otherwise, the returned
 // value is nil and the boolean is false.
 func (b *Bundle) FindJWTAuthority(keyID string) (crypto.PublicKey, bool) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	jwtAuthority, ok := b.jwtAuthorities[keyID]
-	return jwtAuthority, ok
+	return nil, false
 }
 
 // HasJWTAuthority returns true if the bundle has a JWT authority with the given key ID.
 func (b *Bundle) HasJWTAuthority(keyID string) bool {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	_, ok := b.jwtAuthorities[keyID]
-	return ok
+	return false
 }
 
 // AddJWTAuthority adds a JWT authority to the bundle. If a JWT authority already exists
 // under the given key ID, it is replaced. A key ID must be specified.
 func (b *Bundle) AddJWTAuthority(keyID string, jwtAuthority crypto.PublicKey) error {
-	if keyID == "" {
-		return wrapSpiffebundleErr(errors.New("keyID cannot be empty"))
-	}
-
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.jwtAuthorities[keyID] = jwtAuthority
-	return nil
+	return pqprofile.Unsupported("spiffebundle.AddJWTAuthority")
 }
 
 // RemoveJWTAuthority removes the JWT authority identified by the key ID from the bundle.
@@ -237,10 +215,7 @@ func (b *Bundle) RemoveJWTAuthority(keyID string) {
 
 // SetJWTAuthorities sets the JWT authorities in the bundle.
 func (b *Bundle) SetJWTAuthorities(jwtAuthorities map[string]crypto.PublicKey) {
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.jwtAuthorities = jwtutil.CopyJWTAuthorities(jwtAuthorities)
+	// Authorities are never admitted under the strict profile.
 }
 
 // WITAuthorities returns the WIT authorities in the bundle, keyed by key ID.
@@ -274,15 +249,7 @@ func (b *Bundle) HasWITAuthority(keyID string) bool {
 // AddWITAuthority adds a WIT authority to the bundle. If a WIT authority already exists
 // under the given key ID, it is replaced. A key ID must be specified.
 func (b *Bundle) AddWITAuthority(keyID string, witAuthority crypto.PublicKey) error {
-	if keyID == "" {
-		return wrapSpiffebundleErr(errors.New("keyID cannot be empty"))
-	}
-
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.witAuthorities[keyID] = witAuthority
-	return nil
+	return pqprofile.Unsupported("spiffebundle.AddWITAuthority")
 }
 
 // RemoveWITAuthority removes the WIT authority identified by the key ID from the bundle.
@@ -295,10 +262,7 @@ func (b *Bundle) RemoveWITAuthority(keyID string) {
 
 // SetWITAuthorities sets the WIT authorities in the bundle.
 func (b *Bundle) SetWITAuthorities(witAuthorities map[string]crypto.PublicKey) {
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.witAuthorities = jwtutil.CopyJWTAuthorities(witAuthorities)
+	// Authorities are never admitted under the strict profile.
 }
 
 // Empty returns true if the bundle has no X.509, JWT, or WIT authorities.
@@ -438,11 +402,7 @@ func (b *Bundle) GetX509BundleForTrustDomain(trustDomain spiffeid.TrustDomain) (
 // It implements the jwtbundle.Source interface. An error will be returned if
 // the trust domain does not match that of the bundle.
 func (b *Bundle) GetJWTBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*jwtbundle.Bundle, error) {
-	if b.trustDomain != trustDomain {
-		return nil, wrapSpiffebundleErr(fmt.Errorf("no JWT bundle for trust domain %q", trustDomain))
-	}
-
-	return b.JWTBundle(), nil
+	return nil, pqprofile.Unsupported("spiffebundle.GetJWTBundleForTrustDomain")
 }
 
 // WITBundle returns a WIT bundle containing the WIT authorities in the SPIFFE bundle.
@@ -457,11 +417,7 @@ func (b *Bundle) WITBundle() *witbundle.Bundle {
 // It implements the witbundle.Source interface. An error will be returned if
 // the trust domain does not match that of the bundle.
 func (b *Bundle) GetWITBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*witbundle.Bundle, error) {
-	if b.trustDomain != trustDomain {
-		return nil, wrapSpiffebundleErr(fmt.Errorf("no WIT bundle for trust domain %q", trustDomain))
-	}
-
-	return b.WITBundle(), nil
+	return nil, pqprofile.Unsupported("spiffebundle.GetWITBundleForTrustDomain")
 }
 
 // Equal compares the bundle for equality against the given bundle.

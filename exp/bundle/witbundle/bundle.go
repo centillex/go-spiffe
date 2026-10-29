@@ -1,24 +1,23 @@
-// Package witbundle provides support for WIT bundles, which are JWK Sets used
-// to validate WIT-SVID signatures.
+// Package witbundle provides WIT bundle types.
+//
+// WIT trust is outside the qspiffe-pq-v1 profile. This build keeps the
+// package's identifiers so callers fail explicitly and consistently instead of
+// falling back to classical token algorithms: every admission, parsing and
+// lookup operation reports pqprofile.ErrUnsupported or yields no authorities.
 package witbundle
 
 import (
 	"crypto"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
-	"os"
 	"sync"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/spiffe/go-spiffe/v2/internal/jwtutil"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
-const witSVIDUse = "wit-svid"
-
-// Bundle is a collection of trusted WIT authorities for a trust domain.
+// Bundle is a collection of trusted WIT authorities for a trust domain. Under
+// the strict profile it never holds any authority.
 type Bundle struct {
 	trustDomain spiffeid.TrustDomain
 
@@ -26,7 +25,7 @@ type Bundle struct {
 	witAuthorities map[string]crypto.PublicKey
 }
 
-// New creates a new empty bundle for the given trust domain.
+// New creates a new, permanently empty bundle for the given trust domain.
 func New(trustDomain spiffeid.TrustDomain) *Bundle {
 	return &Bundle{
 		trustDomain:    trustDomain,
@@ -34,52 +33,26 @@ func New(trustDomain spiffeid.TrustDomain) *Bundle {
 	}
 }
 
-// FromWITAuthorities creates a new bundle from a map of WIT authorities keyed
-// by key ID.
+// FromWITAuthorities returns an empty bundle. WIT authorities are not admitted
+// under the strict profile; callers that can surface an error should use
+// pqprofile.ErrUnsupported detection instead of relying on this constructor.
 func FromWITAuthorities(trustDomain spiffeid.TrustDomain, witAuthorities map[string]crypto.PublicKey) *Bundle {
-	return &Bundle{
-		trustDomain:    trustDomain,
-		witAuthorities: jwtutil.CopyJWTAuthorities(witAuthorities),
-	}
+	return New(trustDomain)
 }
 
-// Load loads a bundle from a file on disk. The file must contain a standard
-// RFC 7517 JWKS document.
+// Load is unsupported: a WIT bundle cannot be admitted under the strict profile.
 func Load(trustDomain spiffeid.TrustDomain, path string) (*Bundle, error) {
-	bundleBytes, err := os.ReadFile(path)
-	if err != nil {
-		return nil, wrapErr(fmt.Errorf("unable to read WIT bundle: %w", err))
-	}
-
-	return Parse(trustDomain, bundleBytes)
+	return nil, pqprofile.Unsupported("witbundle.Load")
 }
 
-// Read decodes a bundle from a reader. The contents must contain a standard
-// RFC 7517 JWKS document.
+// Read is unsupported: a WIT bundle cannot be admitted under the strict profile.
 func Read(trustDomain spiffeid.TrustDomain, r io.Reader) (*Bundle, error) {
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return nil, wrapErr(fmt.Errorf("unable to read: %v", err))
-	}
-
-	return Parse(trustDomain, b)
+	return nil, pqprofile.Unsupported("witbundle.Read")
 }
 
-// Parse parses a bundle from a JWK Set JSON document.
+// Parse is unsupported: a WIT bundle cannot be admitted under the strict profile.
 func Parse(trustDomain spiffeid.TrustDomain, bundleBytes []byte) (*Bundle, error) {
-	jwks := new(jose.JSONWebKeySet)
-	if err := json.Unmarshal(bundleBytes, jwks); err != nil {
-		return nil, wrapErr(fmt.Errorf("unable to parse JWKS: %v", err))
-	}
-
-	bundle := New(trustDomain)
-	for i, key := range jwks.Keys {
-		if err := bundle.AddWITAuthority(key.KeyID, key.Key); err != nil {
-			return nil, wrapErr(fmt.Errorf("error adding authority %d of JWKS: %v", i, errors.Unwrap(err)))
-		}
-	}
-
-	return bundle, nil
+	return nil, pqprofile.Unsupported("witbundle.Parse")
 }
 
 // TrustDomain returns the trust domain that the bundle belongs to.
@@ -87,7 +60,7 @@ func (b *Bundle) TrustDomain() spiffeid.TrustDomain {
 	return b.trustDomain
 }
 
-// WITAuthorities returns the WIT authorities in the bundle, keyed by key ID.
+// WITAuthorities returns an empty map. WIT authorities are outside the profile.
 func (b *Bundle) WITAuthorities() map[string]crypto.PublicKey {
 	b.mtx.RLock()
 	defer b.mtx.RUnlock()
@@ -95,117 +68,55 @@ func (b *Bundle) WITAuthorities() map[string]crypto.PublicKey {
 	return jwtutil.CopyJWTAuthorities(b.witAuthorities)
 }
 
-// FindWITAuthority finds the WIT authority with the given key ID from the bundle.
-// If the authority is found, it is returned and the boolean is true. Otherwise,
-// the returned value is nil and the boolean is false.
+// FindWITAuthority always reports that no authority is present.
 func (b *Bundle) FindWITAuthority(keyID string) (crypto.PublicKey, bool) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	if witAuthority, ok := b.witAuthorities[keyID]; ok {
-		return witAuthority, true
-	}
 	return nil, false
 }
 
-// HasWITAuthority returns true if the bundle has a WIT authority with the
-// given key ID.
+// HasWITAuthority always reports that no authority is present.
 func (b *Bundle) HasWITAuthority(keyID string) bool {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	_, ok := b.witAuthorities[keyID]
-	return ok
+	return false
 }
 
-// AddWITAuthority adds a WIT authority to the bundle. If a WIT authority already
-// exists under the given key ID, it is replaced. A key ID must be specified.
+// AddWITAuthority is unsupported: authorities are never admitted.
 func (b *Bundle) AddWITAuthority(keyID string, witAuthority crypto.PublicKey) error {
-	if keyID == "" {
-		return wrapErr(errors.New("keyID cannot be empty"))
-	}
-
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.witAuthorities[keyID] = witAuthority
-	return nil
+	return pqprofile.Unsupported("witbundle.AddWITAuthority")
 }
 
-// RemoveWITAuthority removes the WIT authority identified by the key ID from
-// the bundle.
-func (b *Bundle) RemoveWITAuthority(keyID string) {
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
+// RemoveWITAuthority is a no-op; the bundle never contains authorities.
+func (b *Bundle) RemoveWITAuthority(keyID string) {}
 
-	delete(b.witAuthorities, keyID)
-}
+// SetWITAuthorities is a no-op; authorities are never admitted.
+func (b *Bundle) SetWITAuthorities(witAuthorities map[string]crypto.PublicKey) {}
 
-// SetWITAuthorities sets the WIT authorities in the bundle.
-func (b *Bundle) SetWITAuthorities(witAuthorities map[string]crypto.PublicKey) {
-	b.mtx.Lock()
-	defer b.mtx.Unlock()
-
-	b.witAuthorities = jwtutil.CopyJWTAuthorities(witAuthorities)
-}
-
-// Empty returns true if the bundle has no WIT authorities.
+// Empty always returns true under the strict profile.
 func (b *Bundle) Empty() bool {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	return len(b.witAuthorities) == 0
+	return true
 }
 
-// Marshal marshals the WIT bundle into a standard RFC 7517 JWKS document.
+// Marshal is unsupported: there is no WIT bundle representation in the profile.
 func (b *Bundle) Marshal() ([]byte, error) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	jwks := jose.JSONWebKeySet{Keys: make([]jose.JSONWebKey, 0, len(b.witAuthorities))}
-	for keyID, witAuthority := range b.witAuthorities {
-		jwks.Keys = append(jwks.Keys, jose.JSONWebKey{
-			Key:   witAuthority,
-			KeyID: keyID,
-			Use:   witSVIDUse,
-		})
-	}
-
-	return json.Marshal(jwks)
+	return nil, pqprofile.Unsupported("witbundle.Marshal")
 }
 
-// Clone clones the bundle.
+// Clone clones the bundle. The clone is also empty.
 func (b *Bundle) Clone() *Bundle {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	return FromWITAuthorities(b.trustDomain, b.witAuthorities)
+	if b == nil {
+		return nil
+	}
+	return New(b.trustDomain)
 }
 
-// Equal compares the bundle for equality against the given bundle.
+// Equal compares the bundle for equality against the given bundle. Since no
+// authorities can be admitted, equality is trust-domain equality.
 func (b *Bundle) Equal(other *Bundle) bool {
 	if b == nil || other == nil {
 		return b == other
 	}
-
-	return b.trustDomain == other.trustDomain &&
-		jwtutil.JWTAuthoritiesEqual(b.witAuthorities, other.witAuthorities)
+	return b.trustDomain == other.trustDomain
 }
 
-// GetWITBundleForTrustDomain returns the WIT bundle for the given trust domain.
-// It implements the Source interface. An error will be returned if the trust
-// domain does not match that of the bundle.
+// GetWITBundleForTrustDomain is unsupported: WIT bundles are not served.
 func (b *Bundle) GetWITBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*Bundle, error) {
-	b.mtx.RLock()
-	defer b.mtx.RUnlock()
-
-	if b.trustDomain != trustDomain {
-		return nil, wrapErr(fmt.Errorf("no WIT bundle for trust domain %q", trustDomain))
-	}
-
-	return b, nil
-}
-
-func wrapErr(err error) error {
-	return fmt.Errorf("witbundle: %w", err)
+	return nil, pqprofile.Unsupported("witbundle.GetWITBundleForTrustDomain")
 }

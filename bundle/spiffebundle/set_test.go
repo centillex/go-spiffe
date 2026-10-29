@@ -1,20 +1,25 @@
 package spiffebundle_test
 
 import (
-	"crypto"
 	"crypto/x509"
 	"testing"
 
-	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
-	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
+	"github.com/spiffe/go-spiffe/v2/internal/test"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	b1 = spiffebundle.New(td)
+	b1  = spiffebundle.New(td)
+	td2 = spiffeid.RequireTrustDomainFromString("domain2.test")
 )
+
+func testCert(t *testing.T) *x509.Certificate {
+	return test.NewCA(t, td).X509Authorities()[0]
+}
 
 func TestNewSet(t *testing.T) {
 	s := spiffebundle.NewSet(b1)
@@ -58,7 +63,7 @@ func TestSetGetBundleForTrustDomain(t *testing.T) {
 }
 
 func TestSetGetX509BundleForTrustDomain(t *testing.T) {
-	xb1 := x509bundle.FromX509Authorities(td, []*x509.Certificate{x509Cert1})
+	xb1 := x509bundle.FromX509Authorities(td, []*x509.Certificate{testCert(t)})
 	b := spiffebundle.FromX509Bundle(xb1)
 	s := spiffebundle.NewSet(b)
 	_, err := s.GetX509BundleForTrustDomain(td2)
@@ -69,34 +74,20 @@ func TestSetGetX509BundleForTrustDomain(t *testing.T) {
 	require.Equal(t, xb1, xb2)
 }
 
-func TestSetGetJWTBundleForTrustDomain(t *testing.T) {
-	jwtAuthorities := map[string]crypto.PublicKey{
-		"key-1": "test-1",
-		"key-2": "test-2",
+func TestSetGetJWTBundleForTrustDomainIsUnsupported(t *testing.T) {
+	s := spiffebundle.NewSet(b1)
+	for _, trustDomain := range []spiffeid.TrustDomain{td, td2} {
+		b, err := s.GetJWTBundleForTrustDomain(trustDomain)
+		require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+		require.Nil(t, b)
 	}
-	jb1 := jwtbundle.FromJWTAuthorities(td, jwtAuthorities)
-	b := spiffebundle.FromJWTBundle(jb1)
-	s := spiffebundle.NewSet(b)
-	_, err := s.GetJWTBundleForTrustDomain(td2)
-	require.EqualError(t, err, `spiffebundle: no JWT bundle for trust domain "domain2.test"`)
-
-	jb2, err := s.GetJWTBundleForTrustDomain(td)
-	require.NoError(t, err)
-	require.Equal(t, jb1, jb2)
 }
 
-func TestSetGetWITBundleForTrustDomain(t *testing.T) {
-	witAuthorities := map[string]crypto.PublicKey{
-		"key-1": "test-1",
-		"key-2": "test-2",
+func TestSetGetWITBundleForTrustDomainIsUnsupported(t *testing.T) {
+	s := spiffebundle.NewSet(b1)
+	for _, trustDomain := range []spiffeid.TrustDomain{td, td2} {
+		b, err := s.GetWITBundleForTrustDomain(trustDomain)
+		require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+		require.Nil(t, b)
 	}
-	wb1 := witbundle.FromWITAuthorities(td, witAuthorities)
-	b := spiffebundle.FromWITBundle(wb1)
-	s := spiffebundle.NewSet(b)
-	_, err := s.GetWITBundleForTrustDomain(td2)
-	require.EqualError(t, err, `spiffebundle: no WIT bundle for trust domain "domain2.test"`)
-
-	wb2, err := s.GetWITBundleForTrustDomain(td)
-	require.NoError(t, err)
-	require.Equal(t, wb1, wb2)
 }

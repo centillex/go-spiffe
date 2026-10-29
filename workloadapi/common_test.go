@@ -3,7 +3,6 @@ package workloadapi_test
 import (
 	"testing"
 
-	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/internal/test/fakeworkloadapi"
@@ -38,18 +37,6 @@ func requireX509Bundle(tb testing.TB, source x509bundle.Source, td spiffeid.Trus
 func requireNoX509Bundle(tb testing.TB, source x509bundle.Source, td spiffeid.TrustDomain, expected string) {
 	bundle, err := source.GetX509BundleForTrustDomain(td)
 	require.EqualError(tb, err, expected, "X.509 bundle should not exist")
-	require.Nil(tb, bundle)
-}
-
-func requireJWTBundle(tb testing.TB, source jwtbundle.Source, td spiffeid.TrustDomain, expected *jwtbundle.Bundle) {
-	actual, err := source.GetJWTBundleForTrustDomain(td)
-	require.NoError(tb, err)
-	require.Equal(tb, expected, actual)
-}
-
-func requireNoJWTBundle(tb testing.TB, source jwtbundle.Source, td spiffeid.TrustDomain, expected string) {
-	bundle, err := source.GetJWTBundleForTrustDomain(td)
-	require.EqualError(tb, err, expected, "JWT bundle should not exist")
 	require.Nil(tb, bundle)
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
 	"github.com/spiffe/go-spiffe/v2/internal/test/fakeworkloadapi"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -49,7 +50,6 @@ func TestBundleSourceFailsCallsIfClosed(t *testing.T) {
 		SVIDs:  []*x509svid.SVID{svid},
 		Bundle: ca.X509Bundle(),
 	})
-	api.SetJWTBundles(ca.JWTBundle())
 
 	// Create the source. It will wait for the initial response.
 	source, err := workloadapi.NewBundleSource(ctx, withAddr(api))
@@ -65,7 +65,7 @@ func TestBundleSourceFailsCallsIfClosed(t *testing.T) {
 	require.EqualError(t, err, "bundlesource: source is closed")
 
 	_, err = source.GetJWTBundleForTrustDomain(td)
-	require.EqualError(t, err, "bundlesource: source is closed")
+	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
 }
 
 func TestBundleSourceGetsUpdates(t *testing.T) {
@@ -81,13 +81,11 @@ func TestBundleSourceGetsUpdates(t *testing.T) {
 	domain1CA := test.NewCA(t, domain1TD)
 	domain1Bundle := domain1CA.Bundle()
 	domain1X509Bundle := domain1CA.X509Bundle()
-	domain1JWTBundle := domain1CA.JWTBundle()
 
 	domain2TD := spiffeid.RequireTrustDomainFromString("domain2.test")
 	domain2CA := test.NewCA(t, domain2TD)
 	domain2Bundle := domain2CA.Bundle()
 	domain2X509Bundle := domain2CA.X509Bundle()
-	domain2JWTBundle := domain2CA.JWTBundle()
 
 	svids := []*x509svid.SVID{
 		domain1CA.CreateX509SVID(spiffeid.RequireFromPath(domain1TD, "/workload")),
@@ -99,7 +97,6 @@ func TestBundleSourceGetsUpdates(t *testing.T) {
 		Bundle:           domain1X509Bundle,
 		FederatedBundles: []*x509bundle.Bundle{domain2X509Bundle},
 	})
-	api.SetJWTBundles(domain1JWTBundle, domain2JWTBundle)
 
 	// Create the source. It will wait for the initial response.
 	source, sourceDone := newBundleSource(ctx, t, api)
@@ -108,20 +105,15 @@ func TestBundleSourceGetsUpdates(t *testing.T) {
 	// Assert expected bundle contents.
 	requireBundle(t, source, domain1TD, domain1Bundle)
 	requireX509Bundle(t, source, domain1TD, domain1X509Bundle)
-	requireJWTBundle(t, source, domain1TD, domain1JWTBundle)
 	requireBundle(t, source, domain2TD, domain2Bundle)
 	requireX509Bundle(t, source, domain2TD, domain2X509Bundle)
-	requireJWTBundle(t, source, domain2TD, domain2JWTBundle)
 
-	// Now send an update to both the X.509 context and JWT bundle streams
-	// that removes the JWT bundles for each trust domain and no longer
-	// provides the X.509 bundle for domain2.test
+	// Now send an X.509 update that no longer provides the domain2.test
+	// federated bundle. The source only watches X.509 updates.
 	api.SetX509SVIDResponse(&fakeworkloadapi.X509SVIDResponse{
 		SVIDs:  svids,
 		Bundle: domain1X509Bundle,
 	})
-	require.NoError(t, source.WaitUntilUpdated(ctx))
-	api.SetJWTBundles()
 	require.NoError(t, source.WaitUntilUpdated(ctx))
 
 	// Assert that:
@@ -130,10 +122,8 @@ func TestBundleSourceGetsUpdates(t *testing.T) {
 	// - domain1.test JWT bundle is not available
 	requireBundle(t, source, domain1TD, spiffebundle.FromX509Bundle(domain1X509Bundle))
 	requireX509Bundle(t, source, domain1TD, domain1X509Bundle)
-	requireNoJWTBundle(t, source, domain1TD, `bundlesource: no JWT bundle for trust domain "domain1.test"`)
 	requireNoBundle(t, source, domain2TD, `bundlesource: no SPIFFE bundle for trust domain "domain2.test"`)
 	requireNoX509Bundle(t, source, domain2TD, `bundlesource: no X.509 bundle for trust domain "domain2.test"`)
-	requireNoJWTBundle(t, source, domain2TD, `bundlesource: no JWT bundle for trust domain "domain2.test"`)
 }
 
 func TestBundleSourceDoesNotReturnX509BundleIfMissingFromX509Response(t *testing.T) {
@@ -149,8 +139,6 @@ func TestBundleSourceDoesNotReturnX509BundleIfMissingFromX509Response(t *testing
 	domain1X509Bundle := domain1CA.X509Bundle()
 
 	domain2TD := spiffeid.RequireTrustDomainFromString("domain2.test")
-	domain2CA := test.NewCA(t, domain2TD)
-	domain2JWTBundle := domain2CA.JWTBundle()
 
 	// X509SVIDResponse's are rejected if there is no bundle, so we'll use
 	// two trust domains for the test and just not set an X.509 bundle
@@ -159,23 +147,18 @@ func TestBundleSourceDoesNotReturnX509BundleIfMissingFromX509Response(t *testing
 		SVIDs:  []*x509svid.SVID{domain1CA.CreateX509SVID(spiffeid.RequireFromPath(domain1TD, "/workload"))},
 		Bundle: domain1X509Bundle,
 	})
-	api.SetJWTBundles(domain2JWTBundle)
 
 	// Create the source. It will wait for the initial response.
 	source, sourceDone := newBundleSource(ctx, t, api)
 	defer sourceDone()
 
-	// Assert that the domain2.test:
-	// - SPIFFE bundle exists with only JWT authorities
-	// - X.509 bundle does not exist
-	// - JWT bundle exists
-	requireBundle(t, source, domain2TD, spiffebundle.FromJWTBundle(domain2JWTBundle))
+	// Assert that the domain2.test X.509 bundle is absent: this source only
+	// serves X.509 authorities.
 	requireNoX509Bundle(t, source, domain2TD, `bundlesource: no X.509 bundle for trust domain "domain2.test"`)
-	requireJWTBundle(t, source, domain2TD, domain2JWTBundle)
+	requireNoBundle(t, source, domain2TD, `bundlesource: no SPIFFE bundle for trust domain "domain2.test"`)
 }
 
-func TestBundleSourceDoesNotReturnJWTBundleIfMissingFromJWTBundlesResponse(t *testing.T) {
-	// Time out the test after a minute if something goes wrong.
+func TestBundleSourceRejectsJWTBundleLookups(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -184,26 +167,17 @@ func TestBundleSourceDoesNotReturnJWTBundleIfMissingFromJWTBundlesResponse(t *te
 
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
 	ca := test.NewCA(t, td)
-	x509Bundle := ca.X509Bundle()
-
-	// Set the initial X509SVID  response
 	api.SetX509SVIDResponse(&fakeworkloadapi.X509SVIDResponse{
 		SVIDs:  []*x509svid.SVID{ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))},
-		Bundle: x509Bundle,
+		Bundle: ca.X509Bundle(),
 	})
-	api.SetJWTBundles()
 
-	// Create the source. It will wait for the initial response.
 	source, sourceDone := newBundleSource(ctx, t, api)
 	defer sourceDone()
 
-	// Assert that:
-	// - SPIFFE bundle exists with only JWT authorities
-	// - X.509 bundle does not exist
-	// - JWT bundle exists
-	requireBundle(t, source, td, spiffebundle.FromX509Bundle(x509Bundle))
-	requireX509Bundle(t, source, td, x509Bundle)
-	requireNoJWTBundle(t, source, td, `bundlesource: no JWT bundle for trust domain "domain.test"`)
+	bundle, err := source.GetJWTBundleForTrustDomain(td)
+	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+	require.Nil(t, bundle)
 }
 
 func newBundleSource(ctx context.Context, tb testing.TB, api *fakeworkloadapi.WorkloadAPI) (*workloadapi.BundleSource, func()) {

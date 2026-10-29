@@ -2,7 +2,9 @@
 
 The implemented profile is `qspiffe-pq-v1`, initially validated with Go 1.27.3 on
 Linux/amd64. This document describes step 4, **not** production readiness or
-completion of issuance, token, bundle, lifecycle, or independent-review work.
+completion of issuance, bundle, lifecycle, or independent-review work. JWT/WIT
+entry points are rejected at the SDK boundary; see
+[token operations are unsupported](TOKEN_UNSUPPORTED.md).
 
 ## Breaking API change: owned configurations and connections
 

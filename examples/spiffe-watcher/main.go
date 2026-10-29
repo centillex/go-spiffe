@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"sync"
 
-	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,7 +20,7 @@ func main() {
 	// Wait for an os.Interrupt signal
 	go waitForCtrlC(cancel)
 
-	// Start X.509 and JWT watchers
+	// Start the X.509 watcher. Token trust is outside this SDK profile.
 	startWatchers(ctx)
 }
 
@@ -43,16 +42,6 @@ func startWatchers(ctx context.Context) {
 		err := client.WatchX509Context(ctx, &x509Watcher{})
 		if code := status.Code(err); code != codes.OK && code != codes.Canceled {
 			log.Fatalf("Error watching X.509 context: %v", err)
-		}
-	}()
-
-	wg.Add(1)
-	// Start a watcher for JWT bundle updates
-	go func() {
-		defer wg.Done()
-		err := client.WatchJWTBundles(ctx, &jwtWatcher{})
-		if code := status.Code(err); code != codes.OK && code != codes.Canceled {
-			log.Fatalf("Error watching JWT bundles: %v", err)
 		}
 	}()
 
@@ -78,27 +67,6 @@ func (x509Watcher) OnX509ContextUpdate(c *workloadapi.X509Context) {
 func (x509Watcher) OnX509ContextWatchError(err error) {
 	if status.Code(err) != codes.Canceled {
 		log.Printf("OnX509ContextWatchError error: %v", err)
-	}
-}
-
-// jwtWatcher is a sample implementation of the workloadapi.JWTBundleWatcher interface
-type jwtWatcher struct{}
-
-// UpdateX509SVIDs is run every time a JWT Bundle is updated
-func (jwtWatcher) OnJWTBundlesUpdate(bundleSet *jwtbundle.Set) {
-	for _, bundle := range bundleSet.Bundles() {
-		jwt, err := bundle.Marshal()
-		if err != nil {
-			log.Fatalf("Unable to marshal JWT Bundle : %v", err)
-		}
-		log.Printf("jwt bundle updated %q: %s", bundle.TrustDomain(), string(jwt))
-	}
-}
-
-// OnJWTBundlesWatchError is run when the client runs into an error
-func (jwtWatcher) OnJWTBundlesWatchError(err error) {
-	if status.Code(err) != codes.Canceled {
-		log.Printf("OnJWTBundlesWatchError error: %v", err)
 	}
 }
 

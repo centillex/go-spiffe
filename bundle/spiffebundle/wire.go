@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/spiffe/go-spiffe/v2/internal/pqjwk"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -95,7 +96,18 @@ func parseEntry(bundle *Bundle, raw []byte, onlyX509 bool) error {
 			return errors.New("invalid key use")
 		}
 	}
-	if use != x509SVIDUse && (onlyX509 || (use != jwtSVIDUse && use != witSVIDUse)) {
+	switch use {
+	case x509SVIDUse:
+		// Handled below.
+	case jwtSVIDUse, witSVIDUse:
+		if onlyX509 {
+			// The X.509-only reader discards token entries and never admits
+			// them; the general reader below rejects them explicitly instead.
+			return nil
+		}
+		return pqprofile.Unsupported("spiffebundle: token authority entry")
+	default:
+		// SPIFFE requires ignoring unknown uses.
 		return nil
 	}
 	if err := json.Unmarshal(fields["kty"], &keyType); err != nil || keyType == "" {

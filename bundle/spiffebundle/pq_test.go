@@ -191,7 +191,7 @@ func FuzzPQBundleReadX509Only(f *testing.F) {
 }
 
 func TestBundleLegacyMultipleCertificatesUseFirst(t *testing.T) {
-	b, err := spiffebundle.Load(td, "testdata/spiffebundle_multiple_x509.json")
+	b, err := spiffebundle.Load(td, "testdata/spiffebundle_multiple_x509_only.json")
 	require.NoError(t, err)
 	require.Len(t, b.X509Authorities(), 1)
 }

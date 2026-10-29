@@ -1,10 +1,10 @@
 package witbundle
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -94,13 +94,5 @@ func (s *Set) Len() int {
 // GetWITBundleForTrustDomain returns the WIT bundle for the given trust domain.
 // It implements the Source interface.
 func (s *Set) GetWITBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*Bundle, error) {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-
-	bundle, ok := s.bundles[trustDomain]
-	if !ok {
-		return nil, wrapErr(fmt.Errorf("no WIT bundle for trust domain %q", trustDomain))
-	}
-
-	return bundle, nil
+	return nil, pqprofile.Unsupported("witbundle.Set.GetWITBundleForTrustDomain")
 }

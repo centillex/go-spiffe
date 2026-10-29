@@ -7,6 +7,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/exp/svid/witsvid"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 )
@@ -65,43 +66,23 @@ func WatchX509Context(ctx context.Context, watcher X509ContextWatcher, options .
 
 // FetchJWTSVID fetches a JWT-SVID.
 func FetchJWTSVID(ctx context.Context, params jwtsvid.Params, options ...ClientOption) (*jwtsvid.SVID, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.FetchJWTSVID(ctx, params)
+	return nil, pqprofile.Unsupported("workloadapi.FetchJWTSVID")
 }
 
 // FetchJWTSVID fetches all JWT-SVIDs.
 func FetchJWTSVIDs(ctx context.Context, params jwtsvid.Params, options ...ClientOption) ([]*jwtsvid.SVID, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.FetchJWTSVIDs(ctx, params)
+	return nil, pqprofile.Unsupported("workloadapi.FetchJWTSVIDs")
 }
 
 // FetchJWTBundles fetches the JWT bundles for JWT-SVID validation, keyed
 // by a SPIFFE ID of the trust domain to which they belong.
 func FetchJWTBundles(ctx context.Context, options ...ClientOption) (*jwtbundle.Set, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.FetchJWTBundles(ctx)
+	return nil, pqprofile.Unsupported("workloadapi.FetchJWTBundles")
 }
 
 // WatchJWTBundles watches for changes to the JWT bundles.
 func WatchJWTBundles(ctx context.Context, watcher JWTBundleWatcher, options ...ClientOption) error {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	return c.WatchJWTBundles(ctx, watcher)
+	return pqprofile.Unsupported("workloadapi.WatchJWTBundles")
 }
 
 // WatchX509Bundles watches for changes to the X.509 bundles.
@@ -117,46 +98,26 @@ func WatchX509Bundles(ctx context.Context, watcher X509BundleWatcher, options ..
 // ValidateJWTSVID validates the JWT-SVID token. The parsed and validated
 // JWT-SVID is returned.
 func ValidateJWTSVID(ctx context.Context, token, audience string, options ...ClientOption) (*jwtsvid.SVID, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.ValidateJWTSVID(ctx, token, audience)
+	return nil, pqprofile.Unsupported("workloadapi.ValidateJWTSVID")
 }
 
 // FetchWITSVID fetches the default WIT-SVID using a short-lived client.
 //
 // Experimental: subject to change.
 func FetchWITSVID(ctx context.Context, spiffeID string, options ...ClientOption) (*witsvid.SVID, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.FetchWITSVID(ctx, spiffeID)
+	return nil, pqprofile.Unsupported("workloadapi.FetchWITSVID")
 }
 
 // FetchWITSVIDs fetches all WIT-SVIDs using a short-lived client.
 //
 // Experimental: subject to change.
 func FetchWITSVIDs(ctx context.Context, spiffeID string, options ...ClientOption) ([]*witsvid.SVID, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.FetchWITSVIDs(ctx, spiffeID)
+	return nil, pqprofile.Unsupported("workloadapi.FetchWITSVIDs")
 }
 
 // FetchWITBundles fetches WIT bundles using a short-lived client.
 //
 // Experimental: subject to change.
 func FetchWITBundles(ctx context.Context, options ...ClientOption) (*witbundle.Set, error) {
-	c, err := New(ctx, options...)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-	return c.FetchWITBundles(ctx)
+	return nil, pqprofile.Unsupported("workloadapi.FetchWITBundles")
 }

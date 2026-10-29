@@ -1,0 +1,20 @@
+{
+    "keys": [
+        {
+            "use": "wit-svid",
+            "kty": "EC",
+            "kid": "uNhqAaPI7NDn7IHOsa2ac1BF4O5qGxjZ",
+            "crv": "P-256",
+            "x": "pm3pJKQjBVx7x1h_dbNVCoHoXZuTwD5EAS2DjcUNsTY",
+            "y": "jAe4nHFq0Jtr4ugIz500GfjjMfCfupIoWcPnwVWnpJc"
+        },
+        {
+            "use": "wit-svid",
+            "kty": "EC",
+            "kid": "y3UHKFp0WqPpG7gVr3FKieiEzwH8fTMm",
+            "crv": "P-256",
+            "x": "SttM6EWWCPBRYDqGKIAqVbCcelCIJE9VBqj-uX4sgwE",
+            "y": "4jVOkUVM-lA9GYNU8_GX5Us5fjNR_f9Hcaj7PGkgZDo"
+        }
+    ]
+}

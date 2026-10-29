@@ -33,11 +33,12 @@ boundaries are separate.
 
 ## Public APIs and compatibility
 
-`spiffebundle.Load`, `Read`, `Parse`, and `Bundle.Marshal` now support native
+`spiffebundle.Load`, `Read`, `Parse`, and `Bundle.Marshal` support native
 ML-DSA-65 authority entries, without changing the pinned go-jose dependency or
-adding PQ token algorithms. These **general data APIs retain legacy classical
-and token capability**; decoding alone is not strict-profile trust admission.
-Global JWT/WIT entry-point rejection remains step 7.
+adding PQ token algorithms. These general data APIs still admit classical X.509
+authorities for compatibility, but **token entries are now rejected**: see
+[token operations are unsupported](TOKEN_UNSUPPORTED.md). Decoding alone is not
+strict-profile trust admission.
 
 Use `ParseX509Only` or `ReadX509Only` for strict-profile X.509 trust admission.
 They return a Bundle with only X.509 authorities:

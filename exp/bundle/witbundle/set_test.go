@@ -4,11 +4,10 @@ import (
 	"testing"
 
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
+	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 )
-
-// td and td2 are defined in bundle_test.go (same package).
 
 var b1 = witbundle.New(td)
 
@@ -80,12 +79,11 @@ func TestBundles(t *testing.T) {
 	require.Equal(t, td3, bundles[2].TrustDomain())
 }
 
-func TestSetGetWITBundleForTrustDomain(t *testing.T) {
+func TestSetGetWITBundleForTrustDomainIsUnsupported(t *testing.T) {
 	s := witbundle.NewSet(b1)
-	_, err := s.GetWITBundleForTrustDomain(td2)
-	require.EqualError(t, err, `witbundle: no WIT bundle for trust domain "other.org"`)
-
-	b, err := s.GetWITBundleForTrustDomain(td)
-	require.NoError(t, err)
-	require.Equal(t, b1, b)
+	for _, trustDomain := range []spiffeid.TrustDomain{td, td2} {
+		b, err := s.GetWITBundleForTrustDomain(trustDomain)
+		require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+		require.Nil(t, b)
+	}
 }
