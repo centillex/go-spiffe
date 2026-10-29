@@ -27,6 +27,8 @@ type report struct {
 	Identity      string `json:"identity"`
 	AnchorSHA256  string `json:"anchor_sha256"`
 	ApprovedPaths int    `json:"approved_paths"`
+	LeafSHA256    string `json:"leaf_sha256"`
+	LeafNotAfter  string `json:"leaf_not_after"`
 	Step6Complete bool   `json:"step6_complete"`
 }
 
@@ -73,7 +75,15 @@ func check(c *workloadapi.X509Context, expected spiffeid.ID, pin [32]byte) (*rep
 	if err != nil || id != expected {
 		return nil, errors.New("strict credential path verification failed")
 	}
-	return &report{Status: "credential_path_verified", Identity: id.String(), AnchorSHA256: hex.EncodeToString(pin[:]), ApprovedPaths: len(paths)}, nil
+	leafHash := sha256.Sum256(selected.Certificates[0].Raw)
+	return &report{
+		Status:        "credential_path_verified",
+		Identity:      id.String(),
+		AnchorSHA256:  hex.EncodeToString(pin[:]),
+		ApprovedPaths: len(paths),
+		LeafSHA256:    hex.EncodeToString(leafHash[:]),
+		LeafNotAfter:  selected.Certificates[0].NotAfter.UTC().Format(time.RFC3339),
+	}, nil
 }
 
 func run() error {

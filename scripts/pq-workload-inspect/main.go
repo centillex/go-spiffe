@@ -31,6 +31,9 @@ type shape struct {
 	AuthorityKeyBytes           int      `json:"authority_key_bytes"`
 	AuthoritySignatureAlgorithm string   `json:"authority_signature_algorithm"`
 	UnexpectedAlgorithms        []string `json:"unexpected_algorithms,omitempty"`
+	LeafSHA256                  string   `json:"leaf_sha256"`
+	LeafSerial                  string   `json:"leaf_serial"`
+	LeafNotAfter                string   `json:"leaf_not_after"`
 	Step6Complete               bool     `json:"step6_complete"`
 }
 
@@ -76,7 +79,17 @@ func run() error {
 	if len(authorities) == 0 {
 		return errors.New("no authority delivered")
 	}
-	out := &shape{Status: "inspected", Identity: expected.String(), LeafKeyAlgorithm: leaf.PublicKeyAlgorithm.String(), LeafSignatureAlgorithm: leaf.SignatureAlgorithm.String(), AuthoritySignatureAlgorithm: authorities[0].SignatureAlgorithm.String()}
+	leafHash := sha256.Sum256(leaf.Raw)
+	out := &shape{
+		Status:                      "inspected",
+		Identity:                    expected.String(),
+		LeafKeyAlgorithm:            leaf.PublicKeyAlgorithm.String(),
+		LeafSignatureAlgorithm:      leaf.SignatureAlgorithm.String(),
+		AuthoritySignatureAlgorithm: authorities[0].SignatureAlgorithm.String(),
+		LeafSHA256:                  hex.EncodeToString(leafHash[:]),
+		LeafSerial:                  leaf.SerialNumber.String(),
+		LeafNotAfter:                leaf.NotAfter.UTC().Format(time.RFC3339),
+	}
 	if k, ok := leaf.PublicKey.(*mldsa.PublicKey); ok && k != nil {
 		out.LeafKeyBytes = len(k.Bytes())
 	}
