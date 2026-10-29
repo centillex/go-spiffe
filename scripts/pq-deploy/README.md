@@ -71,6 +71,30 @@ The script also records deployment-level lifecycle evidence:
 This is still local evidence. The node CA key is a file in the build directory,
 the host root is trusted, and the workflow has not been reviewed independently.
 
+## HA workflow with shared encrypted key custody (PAR-06/PAR-07)
+
+```sh
+bash scripts/pq-deploy/run-ha.sh ../docs/evidence/step6
+```
+
+Requires Docker for PostgreSQL. The script:
+
+1. starts a PostgreSQL container used as the shared SPIRE datastore;
+2. starts two SPIRE servers with the same `pqsql` key manager: ML‑DSA‑65 keys are
+   AES‑256‑GCM encrypted in PostgreSQL and shared by both servers;
+3. puts a loopback TCP load balancer in front of them and points the agent at it;
+4. verifies both servers expose the same CA authority fingerprint;
+5. kills the first server, restarts the agent, and verifies the second server
+   issues a fresh SVID with the same anchor;
+6. stops all servers and confirms cached credentials stop working when the SVID
+   expires (bounded by SVID TTL, not instant);
+7. restarts the survivor and the agent and verifies recovery;
+8. starts a third server with the wrong KEK and verifies it is rejected.
+
+Design and threat model: `../../../KEY_CUSTODY.md` (workspace). The load balancer
+is a local test helper; DNS‑based multi-address discovery and leader failover
+during CA rotation are not exercised.
+
 ## Two-domain federation workflow
 
 ```sh

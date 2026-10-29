@@ -69,6 +69,17 @@ All scripts ran on Linux/amd64 with Go 1.27.3 and passed. Evidence is under
    re-creating it restores service without restarting the agent, and the unpinned
    binary remains denied.
 
+### HA with shared encrypted key custody (`ha-run.log`, `ha/`)
+
+Two SPIRE servers shared one PostgreSQL datastore and a new `pqsql` key manager
+that stores ML-DSA-65 keys AES-256-GCM encrypted, upsert-only, with a KEK file.
+Evidence records identical CA fingerprints on both servers, fresh issuance from
+the surviving server after the first was killed, denial after the cached SVID
+expired during a total outage (43s with a 45s TTL), recovery, and rejection of a
+server configured with the wrong KEK. Loopback TCP load balancing is used; DNS
+multi-address discovery and leader failover during CA rotation remain open
+(PAR-07). Design and threat model: `../../docs/KEY_CUSTODY.md`.
+
 ### Other workflows (unchanged, re-run at the merged head)
 
 - `deployment-run.log`: join-token single-domain issuance, delivery and negative
