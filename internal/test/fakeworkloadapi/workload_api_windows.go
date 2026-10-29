@@ -21,8 +21,7 @@ var maxUint64 = maxBigUint64()
 
 func NewWithNamedPipeListener(tb testing.TB) *WorkloadAPI {
 	w := &WorkloadAPI{
-		x509Chans:       make(map[chan *workload.X509SVIDResponse]struct{}),
-		jwtBundlesChans: make(map[chan *workload.JWTBundlesResponse]struct{}),
+		x509Chans: make(map[chan *workload.X509SVIDResponse]struct{}),
 	}
 
 	listener, err := winio.ListenPipe(fmt.Sprintf(`\\.\pipe\go-spiffe-test-pipe-%x`, randUint64(tb)), nil)
