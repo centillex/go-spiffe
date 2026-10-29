@@ -1,150 +1,146 @@
 # Step 6: real issuance, attestation, and federation
 
-## Status: local deployment evidence complete for the implemented scope
+## Status: local deployment and attestation evidence complete for the implemented scope
 
-A two-domain PQ reference deployment is implemented and executed locally. It is
+A two-domain PQ reference deployment, plus a certificate-attested single-domain
+workflow with rotation and recovery, is implemented and executed locally. This is
 not production deployment, independent security review, or proof of a secure
-attestation design. Step 6 acceptance therefore remains **partially** satisfied;
-the specific open items are listed at the end.
+attestation design. Step 6 still has open acceptance items listed below.
 
 ## Implemented components
 
-### SDK (`centillex/go-spiffe`, branch `qspiffe/real-deployment-integration`)
+### SDK (`centillex/go-spiffe`, branch `qspiffe/step6-attestation-improvements`, merged to main)
 
 - `scripts/pq-workload-check`: fetches one live Workload API response over an
-  explicit Unix socket, selects exactly the expected identity, and verifies its
-  strict certificate path against an independently provisioned anchor DER digest.
-  It has no fake agent, remote discovery, TOFU, token acquisition or credential
-  output, and reports `step6_complete: false` on success.
-- `scripts/pq-workload-inspect`: asserts the delivered leaf and authority use
-  ML-DSA-65 and reports only public algorithm/shape metadata.
-- `scripts/pq-deploy/run.sh`: single-domain end-to-end deployment.
-- `scripts/pq-cross-domain/run.sh` with `main.go` and `genweb/`: two-domain
-  federation deployment plus a cross-domain mutual-TLS application that uses the
-  SDK's owned strict transports and live Workload API sources.
-- Documentation: `scripts/pq-deploy/README.md`.
+  explicit Unix socket, selects exactly the expected identity, verifies its
+  strict certificate path against an independently provisioned anchor DER digest,
+  and reports the leaf fingerprint. No fake agent, remote discovery, TOFU, token
+  acquisition or credential output; reports `step6_complete: false`.
+- `scripts/pq-workload-inspect`: reports public algorithm/shape metadata.
+- `scripts/pq-deploy/run.sh`: single-domain deployment using join-token bootstrap.
+- `scripts/pq-deploy/run-attested.sh` with `gennode/`: certificate-based node
+  attestation (`x509pop`), workload attestation pinned to uid + path + SHA-256,
+  SVID rotation, agent/server restart, entry revocation and recovery.
+- `scripts/pq-cross-domain/run.sh`: two-domain federation and cross-domain
+  mutual-TLS workload exchange.
+- Documentation: `scripts/pq-deploy/README.md`, `docs/LIFECYCLE.md`.
 
-### PQ SPIRE fork (`centillex/spire`, branch `qspiffe/pq-issuance`)
+### PQ SPIRE fork (`centillex/spire`, main at `7deb5238`)
 
-Base: upstream SPIRE v1.15.5, commit `f62d747d56e9caa6a38ad4bcbc32dbcc3dc1399a`.
+Base upstream SPIRE v1.15.5. In addition to the ML-DSA issuer/agent/workload key
+support and `strict_pq` mode described earlier, this iteration adds:
 
-- ML-DSA-65 key generation, PKIX persistence, signing, and restoration in the
-  server and agent key-manager facades and base implementations, including
-  explicit pure-message signing semantics (original message plus optional
-  context, never a silent prehash).
-- ML-DSA-65 workload and agent SVID key selection (`workload_x509_svid_key_type`,
-  new `agent_svid_key_type`).
-- `strict_pq` server mode: X.509 issuance and CA signers must be ML-DSA-65;
-  weaker issuer, agent and workload keys are rejected; JWT/WIT profiles must be
-  disabled; control-plane TLS requires TLS 1.3 with PQ KEMs.
-- `strict_pq` agent mode: rejects `insecure_bootstrap`, requires ML-DSA-65 agent
-  and workload keys, and requires TLS 1.3 with PQ KEMs.
-- CA health probes and node-attestation CSR generation follow the selected key
-  algorithm instead of assuming ECDSA.
-- Federation bundle endpoint can marshal ML-DSA AKP X.509 entries, and the
-  federation reader accepts them; federation fetches reject redirects and apply
-  the transport policy to Web PKI endpoints.
+- **ML-DSA x509pop challenge-response.** The `x509pop` attestor now generates and
+  verifies ML-DSA-65 nonce challenges, rejecting other parameter sets. Node
+  attestation can therefore use certificate proof-of-possession instead of a
+  shared join token.
+- **Dependency remediation.** `go-jose/v4` updated to 4.1.6 and `chi` to 5.4.0;
+  the plugin SDK now uses go-jose v4 exclusively, removing the unpatched
+  `go-jose/v3` dependency. All five open Dependabot advisories on the fork's
+  default branch are resolved (`../evidence/step6/dependabot-alerts-spire-after.json`
+  is empty).
 
-### Plugin protocol fork (`centillex/spire-plugin-sdk`, branch `qspiffe/pq-issuance`)
+### Plugin protocol fork (`centillex/spire-plugin-sdk`, main at `01ab29f`)
 
-Base: `5eb0bd2eeb9349e9bb84db124180dd7e763eaa91`.
-
-- New `ML_DSA_65` key type (wire value 5) for agent and server key managers.
-- New explicit `MLDSAOptions` signer option carrying an optional context, with
-  pure-message semantics documented, so ML-DSA cannot be confused with hashed
-  signing or RSA PSS.
+- ML-DSA key type and pure-message signing options (previous iteration).
+- Bundle formatting migrated to `go-jose/v4` 4.1.6, removing `go-jose/v3`.
 
 ## Executed workflows
 
-Both scripts were run on Linux/amd64 with Go 1.27.3 and passed. Evidence is under
+All scripts ran on Linux/amd64 with Go 1.27.3 and passed. Evidence is under
 `../evidence/step6/`.
 
-Single domain (`deployment-run.log`, `deployment/`):
+### Certificate-attested workflow (`attested-run.log`, `attested/`)
 
-1. ML-DSA-65 CA server started with `strict_pq`, token profiles disabled, SQLite
-   datastore and disk key manager.
-2. Join token issued; trust bundle exported over the authenticated server API.
-3. Agent started with `strict_pq`, ML-DSA-65 agent/workload keys, no insecure
-   bootstrap; node attested and workload entry registered for `unix:uid`.
-4. `pq-workload-check` reported `credential_path_verified` for
-   `spiffe://pq.example/workload/app` with an externally supplied anchor digest.
-5. `pq-workload-inspect` reported leaf key algorithm `ML-DSA`, leaf and authority
-   signature `ML-DSA-65`, 1952-byte keys.
-6. An unregistered identity was rejected, and an incorrect anchor pin was
-   rejected.
-7. No private key material was found in exported evidence.
+1. ML-DSA-65 node CA issues an ML-DSA-65 node certificate; the agent attests with
+   `x509pop` and receives an agent identity of the form
+   `spiffe://pq.example/spire/agent/x509pop/<fingerprint>`.
+2. The registration entry requires `unix:uid`, `unix:path` and `unix:sha256` of
+   the exact workload binary; the workload obtains an ML-DSA-65 SVID verified
+   against an externally pinned anchor.
+3. An identical binary at a different path is denied (`unpinned-check.json`).
+4. The X509-SVID rotates: leaf fingerprints differ across
+   `rotation-before.json` and `rotation-after.json` while authentication keeps
+   succeeding.
+5. The agent is stopped and restarted; it re-attests and serves credentials again.
+6. The server is stopped and restarted with persisted state; the agent reconnects
+   and credentials still verify.
+7. Deleting the registration entry stops credential delivery (`revoked-check.txt`);
+   re-creating it restores service without restarting the agent, and the unpinned
+   binary remains denied.
 
-Two domains (`federation-run.log`, `federation/`):
+### Other workflows (unchanged, re-run at the merged head)
 
-1. Separate `a.example` and `b.example` servers/agents with distinct CA state.
-2. Bidirectional `https_web` federation over loopback TLS using ephemeral
-   ML-DSA-65 Web PKI material pinned per process via `SSL_CERT_FILE`.
-3. Each server listed the peer trust domain in its bundle listing.
-4. Both workloads obtained ML-DSA-65 credentials through their own agent.
-5. Registered entries used `-federatesWith`, so agents fetched the federated
-   bundle.
-6. Cross-domain mutual TLS succeeded: `a.example` client authenticated the
-   `b.example` server and vice versa, with exact peer identity authorization,
-   TLS 1.3 and `X25519MLKEM768`.
-7. A mismatched cross-domain authorization was rejected (`tls: bad certificate`).
+- `deployment-run.log`: join-token single-domain issuance, delivery and negative
+  identity/anchor checks.
+- `federation-run.log`: two-domain `https_web` federation and authorized
+  cross-domain mutual TLS with TLS 1.3 and `X25519MLKEM768`.
 
-### Component and configuration tests
+## Component and configuration tests
 
-- Server/agent key-manager ML-DSA signing, context handling, prehash rejection,
-  PKCS#8 restoration, certificate and CSR creation.
-- CA issuance with the real template builder and credential validator, including
-  rejection of ML-DSA-44/87 and of classical issuer/workload keys under
-  `strict_pq`.
-- Plugin protocol wire round trip for `ML_DSA_65` and `MLDSAOptions`.
-- Bundle marshal/unmarshal of AKP entries and rejection of private/competing
-  fields, wrong algorithm, token use and empty `x5c`.
-- Server/agent configuration tests for token-profile requirements, classical key
-  rejection, `insecure_bootstrap` rejection, and forced TLS 1.3 + PQ KEM.
-- Federation redirect rejection and TLS policy application.
+- x509pop ML-DSA-65 challenge/response round trip, tampered-signature rejection,
+  cross-algorithm challenge confusion rejection, and ML-DSA-44 rejection.
+- ML-DSA key-manager signing, context handling, prehash rejection, persistence,
+  certificate and CSR issuance; strict CA/agent/workload key admission.
+- Bundle AKP marshal/unmarshal, redirect rejection, and TLS policy on federation.
+- SDK source lifecycle, readiness/recovery, expiry, trust removal, and connection
+  retirement (see `docs/LIFECYCLE.md`).
 
-Full `go build ./...` in the fork passes, and the listed packages pass with
-`-race`.
+Full `go build ./...` and the listed package tests pass in both forks; SDK
+`go test ./...`, race, lint, and the Go baseline pass at the merged head. Hosted
+PR-build run 40867123416 passed Linux and Windows test/lint at `088380a`.
 
-## Honest limitations
+## Attestation and dependency assessment
 
-- **Attestation is not PQ-secure or independently reviewed.** Node attestation
-  uses `join_token` (a shared bootstrap secret) and workload attestation uses
-  `unix:uid` (local host authorization). Neither establishes resistance to a
-  compromised host or a strong multi-tenant identity binding. Production use
-  requires a reviewed attestor such as TPM, Kubernetes with hardened review, or
-  cloud instance identity, plus analysis of its own software/signature chain.
-- **No recovery exercise yet.** Restart/re-attestation, root replacement and
-  recovery failure paths are not executed here; step 8 covers lifecycle and
-  recovery acceptance.
-- **No real external peer.** Both domains and all Web PKI material are synthetic
-  and local. There is no independent SPIFFE implementation, real issuer, or
-  third-party deployment in this evidence.
-- **Forks, not upstream.** The ML-DSA support lives in `centillex/spire` and
-  `centillex/spire-plugin-sdk`; it is unpublished upstream work with no
-  independent review, and the SPIRE dependency graph retains existing alerts
-  (5 on the fork's default branch, 32 on the plugin SDK's default branch) that
-  were not investigated.
-- **Operational concerns unmeasured.** Performance, ML-DSA certificate sizes in
-  TLS records, datastore growth, monitoring and rate limits are not evaluated.
-- **No production secret handling.** Disk key managers and SQLite are used;
-  KMS/HSM integration and key-custody review are out of scope here.
-- **SDK coverage is a boundary check.** The SDK scripts verify credential shape
-  and path, not full application authorization policy or deployment hardening.
+- **Node attestation:** x509pop proves possession of the node private key and
+  binds the agent identity to a CA-issued node certificate. This removes the
+  reusable join-token secret from the attested path, but it trusts the node CA
+  and the host root: a compromised host or stolen node key can attest. Node
+  certificate rotation/revocation, CA key custody, and issuance authorization for
+  the node CA remain deployment responsibilities and were not exercised here.
+- **Workload attestation:** uid + path + SHA-256 binds the identity to a specific
+  binary image. It does not defend against a compromised host that can replace
+  the binary at the pinned path or manipulate the kernel/`/proc`. `join_token` +
+  `unix:uid` remains available in the simpler workflow and is weaker.
+- **Dependencies:** the previous five Dependabot advisories (go-jose v3/v4, chi)
+  are resolved by version updates and by removing go-jose v3 from the plugin SDK.
+  This is a dependency-version review, not a full software supply-chain audit of
+  attestors, SPIRE plugins, or the container/kernel stack.
+- **Control plane:** strict profile TLS requires TLS 1.3 with PQ KEMs; token
+  profiles are disabled; insecure bootstrap is rejected by configuration.
+
+## Honestly remaining
+
+- **No independent review or real deployment.** All issuers, CAs, node
+  credentials, Web PKI material, and peers are synthetic and local. No external
+  security review, no production infrastructure, and no independent SPIFFE peer.
+- **Attestation depth.** No TPM, cloud instance identity, Kubernetes, or hardware
+  root attestation was implemented or reviewed. Host compromise is out of scope.
+- **Node credential lifecycle.** Node certificate rotation/revocation and the node
+  CA's own issuance authorization were not exercised. Only server CA and SVID
+  rotation were observed.
+- **Recovery scope.** Restart and entry-recreation recovery are tested locally;
+  disaster recovery, datastore restore, and key-custody recovery are not.
+- **Scale and performance.** ML-DSA certificate sizes, handshake cost, datastore
+  growth and monitoring behaviour are unmeasured (step 10).
+- **Fork maintenance.** The PQ support is unpublished upstream work without
+  independent review; upstreaming and long-term maintenance are open.
 
 ## Reproduce
 
 ```sh
-# Build the PQ forks
 cd ../spire
 GOTOOLCHAIN=go1.27.3 go build -o .build/bin/spire-server ./cmd/spire-server
 GOTOOLCHAIN=go1.27.3 go build -o .build/bin/spire-agent ./cmd/spire-agent
 
-# From go-spiffe
+cd ../go-spiffe
 bash scripts/pq-deploy/run.sh ../docs/evidence/step6
+bash scripts/pq-deploy/run-attested.sh ../docs/evidence/step6
 bash scripts/pq-cross-domain/run.sh ../docs/evidence/step6
 ```
 
 Pinned revisions used for this evidence:
 
-- `centillex/spire` `qspiffe/pq-issuance` at `542b7fc` (on `8dbb4e7`)
-- `centillex/spire-plugin-sdk` `qspiffe/pq-issuance` at `59bb18a`
+- `go-spiffe` main `088380a`
+- `centillex/spire` main `7deb5238`
+- `centillex/spire-plugin-sdk` main `01ab29f`

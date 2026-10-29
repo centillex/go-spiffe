@@ -39,6 +39,38 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## Attested workflow with rotation and recovery
+
+```sh
+bash scripts/pq-deploy/run-attested.sh ../docs/evidence/step6
+```
+
+This variant uses certificate-based node attestation instead of a shared join
+token:
+
+- a synthetic ML-DSA-65 node CA issues the agent an ML-DSA-65 node certificate;
+- the server's `x509pop` attestor verifies the chain and a nonce challenge
+  response signed with the node key (no reusable bootstrap secret is sent);
+- workload attestation is pinned to `unix:uid`, the exact executable path, and
+  its SHA-256, so the same bytes at a different path or any other binary is
+  denied.
+
+The script also records deployment-level lifecycle evidence:
+
+1. a workload credential is issued and verified against an externally pinned
+   anchor;
+2. an unpinned copy of the same binary is denied;
+3. the X509-SVID rotates (leaf fingerprint changes) while the workload keeps
+   authenticating;
+4. the agent restarts and re-attests, then serves credentials again;
+5. the server restarts with persisted state and the agent reconnects;
+6. deleting the registration entry stops credential delivery, and re-creating it
+   restores service without restarting the agent;
+7. the unpinned binary stays denied after recovery.
+
+This is still local evidence. The node CA key is a file in the build directory,
+the host root is trusted, and the workflow has not been reviewed independently.
+
 ## Two-domain federation workflow
 
 ```sh
