@@ -167,6 +167,43 @@ if ! grep -q '"status":"credential_path_verified"' "$evidence/deployment/workloa
   exit 1
 fi
 
+# Export the public bundle for format inspection. It must carry the ML-DSA-65
+# JWT authority as an RFC 9964 AKP entry and no private material.
+"$bin/spire-server" bundle show -socketPath "$server_dir/api.sock" -format spiffe > "$evidence/deployment/bundle.jwks.json" 2>"$work/log/bundle-jwks.err" || {
+  echo "FAIL: could not export bundle JWKS" >&2
+  cat "$work/log/bundle-jwks.err" >&2
+  fail=1
+}
+if ! grep -q '"kty": "AKP"' "$evidence/deployment/bundle.jwks.json" ||
+   ! grep -q '"alg": "ML-DSA-65"' "$evidence/deployment/bundle.jwks.json" ||
+   grep -q '"priv"' "$evidence/deployment/bundle.jwks.json"; then
+  echo "FAIL: exported bundle is not a public ML-DSA-65 AKP JWKS" >&2
+  fail=1
+fi
+
+# Optional independent JOSE verification: feed a freshly fetched token to a
+# separate ML-DSA implementation and check the signature against the exported
+# AKP JWKS. The token is streamed and never written to disk.
+if [[ -n "${PQ_JOSE_VERIFIER:-}" ]]; then
+  if (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-jwt-fetch \
+      -endpoint "unix://$agent_dir/api.sock" \
+      -id spiffe://pq.example/workload/app \
+      -audience spiffe://pq.example/audience | \
+      "$PQ_JOSE_VERIFIER" "$spire/scripts/pq-jose-interop/verify.py" \
+      --jwks "$(realpath "$evidence/deployment/bundle.jwks.json")" \
+      > "$evidence/deployment/jwt-interop.json" 2>"$work/log/jwt-interop.err"); then
+    if ! grep -q '"signature_verified": true' "$evidence/deployment/jwt-interop.json"; then
+      echo "FAIL: independent JOSE verifier did not accept the token" >&2
+      cat "$work/log/jwt-interop.err" >&2
+      fail=1
+    fi
+  else
+    echo "FAIL: independent JOSE verification failed" >&2
+    cat "$work/log/jwt-interop.err" >&2
+    fail=1
+  fi
+fi
+
 # Negative control: a different workload identity must not be delivered.
 if (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-workload-check \
     -endpoint "unix://$agent_dir/api.sock" \
@@ -192,20 +229,6 @@ if ! (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-workload-inspect \
     -id spiffe://pq.example/workload/app > "$evidence/deployment/credential-shape.json" 2>"$work/log/inspect.err"); then
   echo "FAIL: credential shape inspection failed" >&2
   cat "$work/log/inspect.err" >&2
-  fail=1
-fi
-
-# Export the public bundle for format inspection. It must carry the ML-DSA-65
-# JWT authority as an RFC 9964 AKP entry and no private material.
-"$bin/spire-server" bundle show -socketPath "$server_dir/api.sock" -format spiffe > "$evidence/deployment/bundle.jwks.json" 2>"$work/log/bundle-jwks.err" || {
-  echo "FAIL: could not export bundle JWKS" >&2
-  cat "$work/log/bundle-jwks.err" >&2
-  fail=1
-}
-if ! grep -q '"kty": "AKP"' "$evidence/deployment/bundle.jwks.json" ||
-   ! grep -q '"alg": "ML-DSA-65"' "$evidence/deployment/bundle.jwks.json" ||
-   grep -q '"priv"' "$evidence/deployment/bundle.jwks.json"; then
-  echo "FAIL: exported bundle is not a public ML-DSA-65 AKP JWKS" >&2
   fail=1
 fi
 

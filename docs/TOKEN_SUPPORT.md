@@ -54,7 +54,9 @@ unsupported sentinel.
 - SPIRE tests cover ML-DSA JWT issuance and validation, AKP bundle round trips,
   and refusal of classical signers under strict PQ.
 - `scripts/pq-deploy/run.sh` fetches a JWT-SVID from a live agent, verifies it
-  against the delivered JWT bundle with an externally pinned X.509 anchor, and
-  confirms a tampered token is rejected.
+  against the delivered JWT bundle with an externally pinned X.509 anchor,
+  confirms a tampered token is rejected, and (when `PQ_JOSE_VERIFIER` is set)
+  streams the token to `scripts/pq-jose-interop/verify.py`, which verifies the
+  signature with the independent pure-Python `dilithium-py` implementation.
 
 WIT support remains PAR-02 in the workspace gap register.
