@@ -111,18 +111,25 @@ PR-build run 40867123416 passed Linux and Windows test/lint at `088380a`.
 
 ## Honestly remaining
 
+The identifiers below map to the workspace parity register
+(`../../docs/GAP_REGISTER.md`).
+
 - **No independent review or real deployment.** All issuers, CAs, node
   credentials, Web PKI material, and peers are synthetic and local. No external
   security review, no production infrastructure, and no independent SPIFFE peer.
-- **Attestation depth.** No TPM, cloud instance identity, Kubernetes, or hardware
-  root attestation was implemented or reviewed. Host compromise is out of scope.
-- **Node credential lifecycle.** Node certificate rotation/revocation and the node
-  CA's own issuance authorization were not exercised. Only server CA and SVID
-  rotation were observed.
+- **Attestation depth (PAR-05).** No TPM, cloud instance identity, Kubernetes, or
+  hardware root attestation was implemented or reviewed. Host compromise is out
+  of scope.
+- **Node credential lifecycle (PAR-16).** Node certificate rotation/revocation and
+  the node CA's own issuance authorization were not exercised. Only server CA and
+  SVID rotation were observed.
 - **Recovery scope.** Restart and entry-recreation recovery are tested locally;
   disaster recovery, datastore restore, and key-custody recovery are not.
-- **Scale and performance.** ML-DSA certificate sizes, handshake cost, datastore
-  growth and monitoring behaviour are unmeasured (step 10).
+- **Key custody and HA (PAR-06/PAR-07).** ML-DSA keys are held only by the
+  software disk/memory key managers; cloud KMS/HSM paths do not issue ML-DSA and
+  multi-server HA was not exercised.
+- **Scale and performance (PAR-14).** ML-DSA certificate sizes, handshake cost,
+  datastore growth and monitoring behaviour are unmeasured (step 10).
 - **Fork maintenance.** The PQ support is unpublished upstream work without
   independent review; upstreaming and long-term maintenance are open.
 

@@ -25,7 +25,10 @@ lifecycle, recovery, and connection
 retirement](docs/LIFECYCLE.md) are implemented and tested with explicit
 synchronization guarantees. Secure attestation review, independent TLS/issuer
 interoperability, and independent security review remain open. The complete workspace roadmap is
-`../docs/IMPLEMENTATION_PLAN.md` (outside this Go module).
+`../docs/IMPLEMENTATION_PLAN.md` and the remaining distance to full upstream
+capability/assurance parity is tracked in `../docs/GAP_REGISTER.md` (both outside
+this Go module). The end goal is at least parity with upstream SPIFFE/SPIRE while
+remaining quantum-ready.
 
 ## Documentation
 

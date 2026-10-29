@@ -66,3 +66,11 @@ or configuration switch that re-enables classical tokens.
 
 Local `go test ./...`, race tests, `go vet`, lint (0 issues) and the full Go
 baseline pass. Hosted validation is recorded in the workspace roadmap.
+
+## Parity note
+
+Rejecting tokens is safe but is a temporary capability gap relative to upstream
+SPIFFE/SPIRE. Restoring them requires ML-DSA JOSE support (RFC 9964 AKP) and is
+tracked as **PAR-01/PAR-02** in the workspace
+[gap register](../../docs/GAP_REGISTER.md). This document will be replaced by
+PQ token support documentation once that gap closes.
