@@ -23,7 +23,8 @@ independently implemented format round trip. A local two-domain PQ deployment is
 recorded in [the deployment status](docs/REAL_DEPLOYMENT_STATUS.md). [Source
 lifecycle, recovery, and connection
 retirement](docs/LIFECYCLE.md) are implemented and tested with explicit
-synchronization guarantees. Secure attestation review, independent TLS/issuer
+synchronization guarantees, and [HA deployment](docs/HA_DEPLOYMENT.md) is
+validated with shared encrypted ML-DSA key custody. Secure attestation review, independent TLS/issuer
 interoperability, and independent security review remain open. The complete workspace roadmap is
 `../docs/IMPLEMENTATION_PLAN.md` and the remaining distance to full upstream
 capability/assurance parity is tracked in `../docs/GAP_REGISTER.md` (both outside

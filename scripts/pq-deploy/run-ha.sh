@@ -380,6 +380,10 @@ for _ in $(seq 1 90); do
   docker exec "$srv_b" /work/bin/spire-server healthcheck -socketPath /work/srv-b/api.sock >/dev/null 2>&1 && break
   sleep 1
 done
+# The bootstrap bundle must be refreshed across a CA rotation; otherwise the
+# restarted agent cannot verify the server before its first bundle sync.
+docker exec "$srv_b" /work/bin/spire-server bundle show -socketPath /work/srv-b/api.sock -format pem > "$work/agent/bundle.pem" \
+  || fail "refresh bootstrap bundle after rotation"
 docker rm -f "$agent_name" >/dev/null 2>&1 || true
 run_agent || fail "agent restart after recovery"
 wait_check "$anchor_new" "$evidence/ha/after-recovery-check.json" || fail "credential after recovery"

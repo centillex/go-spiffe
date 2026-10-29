@@ -100,8 +100,9 @@ The script records:
 8. recovery after restarting the survivor and agent;
 9. a third server with the wrong KEK is rejected and never healthy.
 
-Design and threat model: `../../../KEY_CUSTODY.md` (workspace). Datastore
-concurrency at production scale remains open (PAR-08/PAR-14).
+Design and threat model: `../../../KEY_CUSTODY.md` (workspace). Operations
+runbook: `../../../go-spiffe/docs/HA_DEPLOYMENT.md`. Datastore concurrency at
+production scale remains open (PAR-08/PAR-14).
 
 ## Two-domain federation workflow
 
