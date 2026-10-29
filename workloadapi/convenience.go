@@ -66,23 +66,43 @@ func WatchX509Context(ctx context.Context, watcher X509ContextWatcher, options .
 
 // FetchJWTSVID fetches a JWT-SVID.
 func FetchJWTSVID(ctx context.Context, params jwtsvid.Params, options ...ClientOption) (*jwtsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.FetchJWTSVID")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.FetchJWTSVID(ctx, params)
 }
 
 // FetchJWTSVID fetches all JWT-SVIDs.
 func FetchJWTSVIDs(ctx context.Context, params jwtsvid.Params, options ...ClientOption) ([]*jwtsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.FetchJWTSVIDs")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.FetchJWTSVIDs(ctx, params)
 }
 
 // FetchJWTBundles fetches the JWT bundles for JWT-SVID validation, keyed
 // by a SPIFFE ID of the trust domain to which they belong.
 func FetchJWTBundles(ctx context.Context, options ...ClientOption) (*jwtbundle.Set, error) {
-	return nil, pqprofile.Unsupported("workloadapi.FetchJWTBundles")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.FetchJWTBundles(ctx)
 }
 
 // WatchJWTBundles watches for changes to the JWT bundles.
 func WatchJWTBundles(ctx context.Context, watcher JWTBundleWatcher, options ...ClientOption) error {
-	return pqprofile.Unsupported("workloadapi.WatchJWTBundles")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.WatchJWTBundles(ctx, watcher)
 }
 
 // WatchX509Bundles watches for changes to the X.509 bundles.
@@ -98,7 +118,12 @@ func WatchX509Bundles(ctx context.Context, watcher X509BundleWatcher, options ..
 // ValidateJWTSVID validates the JWT-SVID token. The parsed and validated
 // JWT-SVID is returned.
 func ValidateJWTSVID(ctx context.Context, token, audience string, options ...ClientOption) (*jwtsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.ValidateJWTSVID")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.ValidateJWTSVID(ctx, token, audience)
 }
 
 // FetchWITSVID fetches the default WIT-SVID using a short-lived client.

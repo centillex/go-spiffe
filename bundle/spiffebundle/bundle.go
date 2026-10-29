@@ -2,7 +2,9 @@ package spiffebundle
 
 import (
 	"crypto"
+	"crypto/mldsa"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
+
 	"github.com/spiffe/go-spiffe/v2/internal/jwtutil"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
 	"github.com/spiffe/go-spiffe/v2/pqprofile"
@@ -86,10 +89,11 @@ func FromX509Bundle(x509Bundle *x509bundle.Bundle) *Bundle {
 	return bundle
 }
 
-// FromJWTBundle returns an empty bundle for the JWT bundle's trust domain.
-// JWT authorities are outside the strict profile and are never admitted.
+// FromJWTBundle creates a bundle from a JWT bundle.
 func FromJWTBundle(jwtBundle *jwtbundle.Bundle) *Bundle {
-	return New(jwtBundle.TrustDomain())
+	bundle := New(jwtBundle.TrustDomain())
+	bundle.SetJWTAuthorities(jwtBundle.JWTAuthorities())
+	return bundle
 }
 
 // FromX509Authorities creates a bundle from X.509 certificates.
@@ -99,10 +103,12 @@ func FromX509Authorities(trustDomain spiffeid.TrustDomain, x509Authorities []*x5
 	return bundle
 }
 
-// FromJWTAuthorities returns an empty bundle. JWT authorities are outside the
-// strict profile and are never admitted.
+// FromJWTAuthorities creates a bundle from JWT authorities. Authorities that
+// are not ML-DSA-65 public keys are dropped.
 func FromJWTAuthorities(trustDomain spiffeid.TrustDomain, jwtAuthorities map[string]crypto.PublicKey) *Bundle {
-	return New(trustDomain)
+	bundle := New(trustDomain)
+	bundle.SetJWTAuthorities(jwtAuthorities)
+	return bundle
 }
 
 // FromWITAuthorities returns an empty bundle. WIT authorities are outside the
@@ -191,18 +197,38 @@ func (b *Bundle) JWTAuthorities() map[string]crypto.PublicKey {
 // is found, it is returned and the boolean is true. Otherwise, the returned
 // value is nil and the boolean is false.
 func (b *Bundle) FindJWTAuthority(keyID string) (crypto.PublicKey, bool) {
-	return nil, false
+	b.mtx.RLock()
+	defer b.mtx.RUnlock()
+
+	authority, ok := b.jwtAuthorities[keyID]
+	return authority, ok
 }
 
 // HasJWTAuthority returns true if the bundle has a JWT authority with the given key ID.
 func (b *Bundle) HasJWTAuthority(keyID string) bool {
-	return false
+	b.mtx.RLock()
+	defer b.mtx.RUnlock()
+
+	_, ok := b.jwtAuthorities[keyID]
+	return ok
 }
 
 // AddJWTAuthority adds a JWT authority to the bundle. If a JWT authority already exists
-// under the given key ID, it is replaced. A key ID must be specified.
+// under the given key ID, it is replaced. A key ID must be specified and the
+// authority must be an ML-DSA-65 public key.
 func (b *Bundle) AddJWTAuthority(keyID string, jwtAuthority crypto.PublicKey) error {
-	return pqprofile.Unsupported("spiffebundle.AddJWTAuthority")
+	if keyID == "" {
+		return wrapSpiffebundleErr(errors.New("keyID cannot be empty"))
+	}
+	if err := validateJWTAuthority(jwtAuthority); err != nil {
+		return wrapSpiffebundleErr(err)
+	}
+
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+
+	b.jwtAuthorities[keyID] = jwtAuthority
+	return nil
 }
 
 // RemoveJWTAuthority removes the JWT authority identified by the key ID from the bundle.
@@ -213,9 +239,20 @@ func (b *Bundle) RemoveJWTAuthority(keyID string) {
 	delete(b.jwtAuthorities, keyID)
 }
 
-// SetJWTAuthorities sets the JWT authorities in the bundle.
+// SetJWTAuthorities sets the JWT authorities in the bundle. Entries that are
+// not ML-DSA-65 public keys are dropped.
 func (b *Bundle) SetJWTAuthorities(jwtAuthorities map[string]crypto.PublicKey) {
-	// Authorities are never admitted under the strict profile.
+	filtered := make(map[string]crypto.PublicKey, len(jwtAuthorities))
+	for keyID, authority := range jwtAuthorities {
+		if keyID != "" && validateJWTAuthority(authority) == nil {
+			filtered[keyID] = authority
+		}
+	}
+
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+
+	b.jwtAuthorities = filtered
 }
 
 // WITAuthorities returns the WIT authorities in the bundle, keyed by key ID.
@@ -402,7 +439,11 @@ func (b *Bundle) GetX509BundleForTrustDomain(trustDomain spiffeid.TrustDomain) (
 // It implements the jwtbundle.Source interface. An error will be returned if
 // the trust domain does not match that of the bundle.
 func (b *Bundle) GetJWTBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*jwtbundle.Bundle, error) {
-	return nil, pqprofile.Unsupported("spiffebundle.GetJWTBundleForTrustDomain")
+	if b.trustDomain != trustDomain {
+		return nil, wrapSpiffebundleErr(fmt.Errorf("no JWT bundle for trust domain %q", trustDomain))
+	}
+
+	return b.JWTBundle(), nil
 }
 
 // WITBundle returns a WIT bundle containing the WIT authorities in the SPIFFE bundle.
@@ -468,6 +509,18 @@ func copySequenceNumber(sequenceNumber *uint64) *uint64 {
 	}
 	copied := *sequenceNumber
 	return &copied
+}
+
+func validateJWTAuthority(jwtAuthority crypto.PublicKey) error {
+	publicKey, ok := jwtAuthority.(*mldsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("unsupported JWT authority key type %T", jwtAuthority)
+	}
+	if publicKey == nil || len(publicKey.Bytes()) != mldsa.MLDSA65().PublicKeySize() ||
+		publicKey.Parameters() != mldsa.MLDSA65() {
+		return errors.New("JWT authority is not an ML-DSA-65 public key")
+	}
+	return nil
 }
 
 func wrapSpiffebundleErr(err error) error {

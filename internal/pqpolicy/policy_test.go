@@ -46,7 +46,10 @@ func TestIdentityFormats(t *testing.T) {
 	if !AllowsIdentityFormat("X509-SVID") {
 		t.Fatal("required format rejected")
 	}
-	for _, name := range []string{"", "JWT-SVID", "WIT", "unknown", "x509-svid"} {
+	if !AllowsIdentityFormat("JWT-SVID") {
+		t.Fatal("JWT-SVID must be admitted")
+	}
+	for _, name := range []string{"", "WIT", "unknown", "x509-svid"} {
 		if AllowsIdentityFormat(name) {
 			t.Errorf("unexpected identity format allowed: %q", name)
 		}

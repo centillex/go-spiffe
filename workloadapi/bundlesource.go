@@ -2,6 +2,7 @@ package workloadapi
 
 import (
 	"context"
+	"crypto"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -27,6 +27,7 @@ type BundleSource struct {
 
 	mtx             sync.RWMutex
 	x509Authorities map[spiffeid.TrustDomain][]*x509.Certificate
+	jwtAuthorities  map[spiffeid.TrustDomain]map[string]crypto.PublicKey
 	life            sourceLifecycle
 
 	closeMtx sync.RWMutex
@@ -45,11 +46,10 @@ func NewBundleSource(ctx context.Context, options ...BundleSourceOption) (_ *Bun
 	s := &BundleSource{
 		now:             time.Now,
 		x509Authorities: make(map[spiffeid.TrustDomain][]*x509.Certificate),
+		jwtAuthorities:  make(map[spiffeid.TrustDomain]map[string]crypto.PublicKey),
 	}
 
-	// JWT bundle watching is deliberately not started: token trust is outside
-	// the strict profile and must not be merged into X.509 bundles.
-	s.watcher, err = newWatcher(ctx, config.watcher, s.setX509Context, s.setX509ContextError, nil)
+	s.watcher, err = newWatcher(ctx, config.watcher, s.setX509Context, s.setX509ContextError, s.setJWTBundles)
 	if err != nil {
 		return nil, err
 	}
@@ -131,12 +131,14 @@ func (s *BundleSource) GetBundleForTrustDomain(trustDomain spiffeid.TrustDomain)
 	if err := s.readyLocked(); err != nil {
 		return nil, wrapBundlesourceErr(err)
 	}
-	x509Authorities, ok := s.x509Authorities[trustDomain]
-	if !ok {
+	x509Authorities, hasX509 := s.x509Authorities[trustDomain]
+	jwtAuthorities, hasJWT := s.jwtAuthorities[trustDomain]
+	if !hasX509 && !hasJWT {
 		return nil, wrapBundlesourceErr(fmt.Errorf("no SPIFFE bundle for trust domain %q", trustDomain))
 	}
 	bundle := spiffebundle.New(trustDomain)
 	bundle.SetX509Authorities(x509Authorities)
+	bundle.SetJWTAuthorities(jwtAuthorities)
 	return bundle, nil
 }
 
@@ -163,10 +165,23 @@ func (s *BundleSource) GetX509BundleForTrustDomain(trustDomain spiffeid.TrustDom
 	return bundle, nil
 }
 
-// GetJWTBundleForTrustDomain is unsupported: JWT trust is outside the strict
-// profile and is never merged into this source.
+// GetJWTBundleForTrustDomain returns the JWT bundle for the given trust
+// domain. It implements the jwtbundle.Source interface.
 func (s *BundleSource) GetJWTBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*jwtbundle.Bundle, error) {
-	return nil, pqprofile.Unsupported("workloadapi.BundleSource.GetJWTBundleForTrustDomain")
+	if err := s.checkClosed(); err != nil {
+		return nil, err
+	}
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	if err := s.readyLocked(); err != nil {
+		return nil, wrapBundlesourceErr(err)
+	}
+	authorities, ok := s.jwtAuthorities[trustDomain]
+	if !ok {
+		return nil, wrapBundlesourceErr(fmt.Errorf("no JWT bundle for trust domain %q", trustDomain))
+	}
+	return jwtbundle.FromJWTAuthorities(trustDomain, authorities), nil
 }
 
 // WaitUntilUpdated waits until the source is updated or the context is done,
@@ -210,6 +225,23 @@ func (s *BundleSource) setX509Context(x509Context *X509Context) {
 	}
 	s.x509Authorities = replacement
 	s.life.markReady(now)
+}
+
+func (s *BundleSource) setJWTBundles(bundles *jwtbundle.Set) {
+	now := s.now()
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	if bundles == nil {
+		s.jwtAuthorities = make(map[spiffeid.TrustDomain]map[string]crypto.PublicKey)
+		s.life.markUnready("nil JWT bundle set", now)
+		return
+	}
+
+	replacement := make(map[spiffeid.TrustDomain]map[string]crypto.PublicKey)
+	for _, bundle := range bundles.Bundles() {
+		replacement[bundle.TrustDomain()] = bundle.JWTAuthorities()
+	}
+	s.jwtAuthorities = replacement
 }
 
 func (s *BundleSource) setX509ContextError(err error) {

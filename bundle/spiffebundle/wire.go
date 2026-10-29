@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/spiffe/go-spiffe/v2/internal/pqjwk"
+	"github.com/spiffe/go-spiffe/v2/pqjose"
 	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
@@ -102,10 +103,12 @@ func parseEntry(bundle *Bundle, raw []byte, onlyX509 bool) error {
 	case jwtSVIDUse, witSVIDUse:
 		if onlyX509 {
 			// The X.509-only reader discards token entries and never admits
-			// them; the general reader below rejects them explicitly instead.
+			// them.
 			return nil
 		}
-		return pqprofile.Unsupported("spiffebundle: token authority entry")
+		if use == witSVIDUse {
+			return pqprofile.Unsupported("spiffebundle: WIT authority entry")
+		}
 	default:
 		// SPIFFE requires ignoring unknown uses.
 		return nil
@@ -150,8 +153,18 @@ func parseEntry(bundle *Bundle, raw []byte, onlyX509 bool) error {
 			return err
 		}
 	}
+	if use == jwtSVIDUse {
+		if keyType != "AKP" {
+			return errors.New("qspiffe-pq-v1: classical JWT authorities are unsupported")
+		}
+		keyID, publicKey, err := pqjose.ParsePublicJWK(raw)
+		if err != nil {
+			return err
+		}
+		return bundle.AddJWTAuthority(keyID, publicKey)
+	}
 	if keyType == "AKP" {
-		return errors.New("qspiffe-pq-v1: AKP token authorities are unsupported")
+		return errors.New("qspiffe-pq-v1: AKP authorities for this use are unsupported")
 	}
 	var key jose.JSONWebKey
 	if err := json.Unmarshal(raw, &key); err != nil {
@@ -218,7 +231,11 @@ func (b *Bundle) marshalDocument() ([]byte, error) {
 		doc.Keys = append(doc.Keys, encoded)
 	}
 	for id, key := range b.jwtAuthorities {
-		encoded, err := json.Marshal(jose.JSONWebKey{Key: key, KeyID: id, Use: jwtSVIDUse})
+		publicKey, ok := key.(*mldsa.PublicKey)
+		if !ok {
+			return nil, wrapSpiffebundleErr(errors.New("JWT authority is not an ML-DSA-65 public key"))
+		}
+		encoded, err := pqjose.MarshalPublicJWKWithUse(id, jwtSVIDUse, publicKey)
 		if err != nil {
 			return nil, wrapSpiffebundleErr(err)
 		}

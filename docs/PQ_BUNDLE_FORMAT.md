@@ -2,8 +2,8 @@
 
 Step 5 implements a narrow RFC 9964 certificate-entry codec, public bundle
 round trips, an X.509-only trust reader, and independent format validation.
-This is not real federation deployment, PQ token support, source lifecycle
-assurance, or completion of steps 6–10.
+This is not real federation deployment, independent token interoperability,
+source lifecycle assurance, or completion of steps 6–10.
 
 ## Standard wire representation
 
@@ -36,14 +36,14 @@ boundaries are separate.
 `spiffebundle.Load`, `Read`, `Parse`, and `Bundle.Marshal` support native
 ML-DSA-65 authority entries, without changing the pinned go-jose dependency or
 adding PQ token algorithms. These general data APIs still admit classical X.509
-authorities for compatibility, but **token entries are now rejected**: see
-[token operations are unsupported](TOKEN_UNSUPPORTED.md). Decoding alone is not
-strict-profile trust admission.
+authorities for compatibility. JWT entries are admitted only as ML-DSA-65 AKP
+public keys; WIT remains rejected: see [token support](TOKEN_SUPPORT.md).
+Decoding alone is not strict-profile trust admission.
 
 Use `ParseX509Only` or `ReadX509Only` for strict-profile X.509 trust admission.
 They return a Bundle with only X.509 authorities:
 
-- JWT/WIT and unknown-use entries are discarded before key decoding; they never
+- JWT, WIT and unknown-use entries are discarded before key decoding; they never
   populate token trust maps or invoke token validation.
 - Unknown key types are ignored, as required by SPIFFE. Recognized classical
   X.509 authorities are rejected rather than used as a fallback.

@@ -40,7 +40,6 @@ server {
     data_dir = "$server_dir/data"
     log_level = "INFO"
     ca_key_type = "ml-dsa-65"
-    disable_jwt_svids = true
     strict_pq = true
 }
 plugins {
@@ -138,7 +137,8 @@ fi
 "$bin/spire-server" entry create -socketPath "$server_dir/api.sock" \
   -parentID spiffe://pq.example/agent/local \
   -spiffeID spiffe://pq.example/workload/app \
-  -selector "unix:uid:$uid" > "$evidence/deployment/entry.txt" 2>&1 || {
+  -selector "unix:uid:$uid" \
+  -jwtSVIDTTL 3600 > "$evidence/deployment/entry.txt" 2>&1 || {
   echo "FAIL: entry creation failed" >&2
   cat "$evidence/deployment/entry.txt" >&2
   exit 1
@@ -151,13 +151,16 @@ for _ in $(seq 1 60); do
       -endpoint "unix://$agent_dir/api.sock" \
       -id spiffe://pq.example/workload/app \
       -anchor-sha256 "$anchor" \
+      -jwt-audience spiffe://pq.example/audience \
       -timeout 10s > "$evidence/deployment/workload-check.json" 2>"$work/log/check.err"); then
     break
   fi
   sleep 1
 done
 
-if ! grep -q '"status":"credential_path_verified"' "$evidence/deployment/workload-check.json" 2>/dev/null; then
+if ! grep -q '"status":"credential_path_verified"' "$evidence/deployment/workload-check.json" 2>/dev/null ||
+   ! grep -q '"jwt_verified":true' "$evidence/deployment/workload-check.json" 2>/dev/null ||
+   ! grep -q '"jwt_tamper_rejected":true' "$evidence/deployment/workload-check.json" 2>/dev/null; then
   echo "FAIL: workload credential check did not pass" >&2
   cat "$work/log/check.err" >&2
   tail -60 "$work/log/agent.log" >&2
@@ -189,6 +192,20 @@ if ! (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-workload-inspect \
     -id spiffe://pq.example/workload/app > "$evidence/deployment/credential-shape.json" 2>"$work/log/inspect.err"); then
   echo "FAIL: credential shape inspection failed" >&2
   cat "$work/log/inspect.err" >&2
+  fail=1
+fi
+
+# Export the public bundle for format inspection. It must carry the ML-DSA-65
+# JWT authority as an RFC 9964 AKP entry and no private material.
+"$bin/spire-server" bundle show -socketPath "$server_dir/api.sock" -format spiffe > "$evidence/deployment/bundle.jwks.json" 2>"$work/log/bundle-jwks.err" || {
+  echo "FAIL: could not export bundle JWKS" >&2
+  cat "$work/log/bundle-jwks.err" >&2
+  fail=1
+}
+if ! grep -q '"kty": "AKP"' "$evidence/deployment/bundle.jwks.json" ||
+   ! grep -q '"alg": "ML-DSA-65"' "$evidence/deployment/bundle.jwks.json" ||
+   grep -q '"priv"' "$evidence/deployment/bundle.jwks.json"; then
+  echo "FAIL: exported bundle is not a public ML-DSA-65 AKP JWKS" >&2
   fail=1
 fi
 

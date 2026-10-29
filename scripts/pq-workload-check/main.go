@@ -18,18 +18,24 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 )
 
 type report struct {
-	Status        string `json:"status"`
-	Identity      string `json:"identity"`
-	AnchorSHA256  string `json:"anchor_sha256"`
-	ApprovedPaths int    `json:"approved_paths"`
-	LeafSHA256    string `json:"leaf_sha256"`
-	LeafNotAfter  string `json:"leaf_not_after"`
-	Step6Complete bool   `json:"step6_complete"`
+	Status            string `json:"status"`
+	Identity          string `json:"identity"`
+	AnchorSHA256      string `json:"anchor_sha256"`
+	ApprovedPaths     int    `json:"approved_paths"`
+	LeafSHA256        string `json:"leaf_sha256"`
+	LeafNotAfter      string `json:"leaf_not_after"`
+	JWTAudience       string `json:"jwt_audience,omitempty"`
+	JWTAlgorithm      string `json:"jwt_algorithm,omitempty"`
+	JWTVerified       bool   `json:"jwt_verified,omitempty"`
+	JWTDelegatedValid bool   `json:"jwt_delegated_validation,omitempty"`
+	JWTTamperRejected bool   `json:"jwt_tamper_rejected,omitempty"`
+	Step6Complete     bool   `json:"step6_complete"`
 }
 
 func validateEndpoint(endpoint string) error {
@@ -90,6 +96,7 @@ func run() error {
 	endpoint := flag.String("endpoint", "", "explicit unix:///absolute/socket path")
 	identity := flag.String("id", "", "expected workload SPIFFE ID")
 	root := flag.String("anchor-sha256", "", "independently provisioned SHA-256 of exact anchor DER")
+	jwtAudience := flag.String("jwt-audience", "", "optional audience for an ML-DSA-65 JWT-SVID check")
 	timeout := flag.Duration("timeout", 10*time.Second, "finite Workload API timeout (maximum one minute)")
 	flag.Parse()
 	if err := validateEndpoint(*endpoint); err != nil {
@@ -110,7 +117,13 @@ func run() error {
 	copy(pin[:], decoded)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	credentials, err := workloadapi.FetchX509Context(ctx, workloadapi.WithAddr(*endpoint))
+	client, err := workloadapi.New(ctx, workloadapi.WithAddr(*endpoint))
+	if err != nil {
+		return errors.New("workload API client failed")
+	}
+	defer client.Close()
+
+	credentials, err := client.FetchX509Context(ctx)
 	// Do not dump responses, certificates, keys, tokens, or backend error details.
 	if err != nil {
 		return errors.New("workload API fetch failed")
@@ -119,6 +132,48 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	if *jwtAudience != "" {
+		jwt, err := client.FetchJWTSVID(ctx, jwtsvid.Params{Subject: id, Audience: *jwtAudience})
+		if err != nil {
+			return errors.New("JWT-SVID fetch failed")
+		}
+		bundles, err := client.FetchJWTBundles(ctx)
+		if err != nil {
+			return errors.New("JWT bundle fetch failed")
+		}
+		verified, err := jwtsvid.ParseAndValidate(jwt.Marshal(), bundles, []string{*jwtAudience})
+		if err != nil || verified.ID != id {
+			return errors.New("JWT-SVID validation failed")
+		}
+		if verified.ID != id {
+			return errors.New("JWT-SVID identity mismatch")
+		}
+		tampered := []byte(jwt.Marshal())
+		if len(tampered) < 2 {
+			return errors.New("JWT-SVID is empty")
+		}
+		// Flip one character of the signature segment.
+		last := len(tampered) - 1
+		if tampered[last] == 'A' {
+			tampered[last] = 'B'
+		} else {
+			tampered[last] = 'A'
+		}
+		if _, err := jwtsvid.ParseAndValidate(string(tampered), bundles, []string{*jwtAudience}); err == nil {
+			return errors.New("tampered JWT-SVID was accepted")
+		}
+		delegated, err := client.ValidateJWTSVID(ctx, jwt.Marshal(), *jwtAudience)
+		if err != nil || delegated.ID != id {
+			return errors.New("delegated JWT-SVID validation failed")
+		}
+		result.JWTAudience = *jwtAudience
+		result.JWTAlgorithm = "ML-DSA-65"
+		result.JWTVerified = true
+		result.JWTDelegatedValid = true
+		result.JWTTamperRejected = true
+	}
+
 	return json.NewEncoder(os.Stdout).Encode(result)
 }
 

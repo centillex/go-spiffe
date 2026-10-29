@@ -1,10 +1,10 @@
 package jwtbundle
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -91,8 +91,16 @@ func (s *Set) Len() int {
 	return len(s.bundles)
 }
 
-// GetJWTBundleForTrustDomain is unsupported: JWT bundles are outside the
-// strict profile.
+// GetJWTBundleForTrustDomain returns the JWT bundle for the given trust
+// domain. It implements the Source interface.
 func (s *Set) GetJWTBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*Bundle, error) {
-	return nil, pqprofile.Unsupported("jwtbundle.Set.GetJWTBundleForTrustDomain")
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	bundle, ok := s.bundles[trustDomain]
+	if !ok {
+		return nil, wrapJwtbundleErr(fmt.Errorf("no JWT bundle for trust domain %q", trustDomain))
+	}
+
+	return bundle, nil
 }

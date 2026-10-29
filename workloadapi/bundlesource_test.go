@@ -2,14 +2,15 @@ package workloadapi_test
 
 import (
 	"context"
+	"crypto/mldsa"
 	"testing"
 	"time"
 
+	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
 	"github.com/spiffe/go-spiffe/v2/internal/test/fakeworkloadapi"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -65,7 +66,7 @@ func TestBundleSourceFailsCallsIfClosed(t *testing.T) {
 	require.EqualError(t, err, "bundlesource: source is closed")
 
 	_, err = source.GetJWTBundleForTrustDomain(td)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+	require.EqualError(t, err, "bundlesource: source is closed")
 }
 
 func TestBundleSourceGetsUpdates(t *testing.T) {
@@ -158,7 +159,7 @@ func TestBundleSourceDoesNotReturnX509BundleIfMissingFromX509Response(t *testing
 	requireNoBundle(t, source, domain2TD, `bundlesource: no SPIFFE bundle for trust domain "domain2.test"`)
 }
 
-func TestBundleSourceRejectsJWTBundleLookups(t *testing.T) {
+func TestBundleSourceJWTBundleLookup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -171,13 +172,18 @@ func TestBundleSourceRejectsJWTBundleLookups(t *testing.T) {
 		SVIDs:  []*x509svid.SVID{ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))},
 		Bundle: ca.X509Bundle(),
 	})
+	jwtKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	jwtBundle := jwtbundle.New(td)
+	require.NoError(t, jwtBundle.AddJWTAuthority("jwt-key", jwtKey.PublicKey()))
+	api.SetJWTBundles(jwtBundle)
 
 	source, sourceDone := newBundleSource(ctx, t, api)
 	defer sourceDone()
 
 	bundle, err := source.GetJWTBundleForTrustDomain(td)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-	require.Nil(t, bundle)
+	require.NoError(t, err)
+	require.True(t, bundle.HasJWTAuthority("jwt-key"))
 }
 
 func newBundleSource(ctx context.Context, tb testing.TB, api *fakeworkloadapi.WorkloadAPI) (*workloadapi.BundleSource, func()) {

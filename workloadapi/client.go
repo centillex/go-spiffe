@@ -168,30 +168,118 @@ func (c *Client) WatchX509Context(ctx context.Context, watcher X509ContextWatche
 
 // FetchJWTSVID fetches a JWT-SVID.
 func (c *Client) FetchJWTSVID(ctx context.Context, params jwtsvid.Params) (*jwtsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.Client.FetchJWTSVID")
+	ctx, cancel := context.WithCancel(withHeader(ctx))
+	defer cancel()
+
+	audience := append([]string{params.Audience}, params.ExtraAudiences...)
+	resp, err := c.wlClient.FetchJWTSVID(ctx, &workload.JWTSVIDRequest{
+		SpiffeId: params.Subject.String(),
+		Audience: audience,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	svids, err := parseJWTSVIDs(resp, audience, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return svids[0], nil
 }
 
 // FetchJWTSVIDs fetches all JWT-SVIDs.
 func (c *Client) FetchJWTSVIDs(ctx context.Context, params jwtsvid.Params) ([]*jwtsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.Client.FetchJWTSVIDs")
+	ctx, cancel := context.WithCancel(withHeader(ctx))
+	defer cancel()
+
+	audience := append([]string{params.Audience}, params.ExtraAudiences...)
+	resp, err := c.wlClient.FetchJWTSVID(ctx, &workload.JWTSVIDRequest{
+		SpiffeId: params.Subject.String(),
+		Audience: audience,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return parseJWTSVIDs(resp, audience, false)
 }
 
 // FetchJWTBundles fetches the JWT bundles for JWT-SVID validation, keyed
 // by a SPIFFE ID of the trust domain to which they belong.
 func (c *Client) FetchJWTBundles(ctx context.Context) (*jwtbundle.Set, error) {
-	return nil, pqprofile.Unsupported("workloadapi.Client.FetchJWTBundles")
+	ctx, cancel := context.WithCancel(withHeader(ctx))
+	defer cancel()
+
+	stream, err := c.wlClient.FetchJWTBundles(ctx, &workload.JWTBundlesRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	return parseJWTSVIDBundles(resp)
 }
 
 // WatchJWTBundles watches for changes to the JWT bundles. The watcher receives
 // the updated JWT bundles.
 func (c *Client) WatchJWTBundles(ctx context.Context, watcher JWTBundleWatcher) error {
-	return pqprofile.Unsupported("workloadapi.Client.WatchJWTBundles")
+	backoff := c.config.backoffStrategy.NewBackoff()
+	for {
+		err := c.watchJWTBundles(ctx, watcher, backoff)
+		watcher.OnJWTBundlesWatchError(err)
+		err = c.handleWatchError(ctx, err, backoff)
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // ValidateJWTSVID validates the JWT-SVID token. The parsed and validated
 // JWT-SVID is returned.
 func (c *Client) ValidateJWTSVID(ctx context.Context, token, audience string) (*jwtsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.Client.ValidateJWTSVID")
+	ctx, cancel := context.WithCancel(withHeader(ctx))
+	defer cancel()
+
+	_, err := c.wlClient.ValidateJWTSVID(ctx, &workload.ValidateJWTSVIDRequest{
+		Svid:     token,
+		Audience: audience,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jwtsvid.ParseInsecure(token, []string{audience})
+}
+
+func (c *Client) watchJWTBundles(ctx context.Context, watcher JWTBundleWatcher, backoff Backoff) error {
+	ctx, cancel := context.WithCancel(withHeader(ctx))
+	defer cancel()
+
+	c.config.log.Debugf("Watching JWT bundles")
+	stream, err := c.wlClient.FetchJWTBundles(ctx, &workload.JWTBundlesRequest{})
+	if err != nil {
+		return err
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		backoff.Reset()
+		jwtbundleSet, err := parseJWTSVIDBundles(resp)
+		if err != nil {
+			c.config.log.Errorf("Failed to parse JWT bundle response: %v", err)
+			watcher.OnJWTBundlesWatchError(err)
+			continue
+		}
+		watcher.OnJWTBundlesUpdate(jwtbundleSet)
+	}
 }
 
 // FetchWITSVID fetches the default WIT-SVID (i.e. the first in the list
@@ -502,3 +590,54 @@ func parseX509BundlesResponse(resp *workload.X509BundlesResponse) (*x509bundle.S
 // parseJWTSVIDs parses one or all of the SVIDs in the response. If firstOnly
 // is true, then only the first SVID in the response is parsed and returned.
 // Otherwise, all SVIDs are parsed and returned.
+
+// parseJWTSVIDs parses one or all of the SVIDs in the response. If firstOnly
+// is true, then only the first SVID in the response is parsed and returned.
+// Otherwise, all SVIDs are parsed and returned.
+func parseJWTSVIDs(resp *workload.JWTSVIDResponse, audience []string, firstOnly bool) ([]*jwtsvid.SVID, error) {
+	n := len(resp.Svids)
+	if n == 0 {
+		return nil, errors.New("there were no SVIDs in the response")
+	}
+	if firstOnly {
+		n = 1
+	}
+
+	hints := make(map[string]struct{}, n)
+	svids := make([]*jwtsvid.SVID, 0, n)
+	for i := 0; i < n; i++ {
+		svid := resp.Svids[i]
+		if _, ok := hints[svid.Hint]; ok && svid.Hint != "" {
+			continue
+		}
+		hints[svid.Hint] = struct{}{}
+
+		s, err := jwtsvid.ParseInsecure(svid.Svid, audience)
+		if err != nil {
+			return nil, err
+		}
+		s.Hint = svid.Hint
+		svids = append(svids, s)
+	}
+
+	return svids, nil
+}
+
+func parseJWTSVIDBundles(resp *workload.JWTBundlesResponse) (*jwtbundle.Set, error) {
+	bundles := []*jwtbundle.Bundle{}
+
+	for tdID, b := range resp.Bundles {
+		td, err := spiffeid.TrustDomainFromString(tdID)
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := jwtbundle.Parse(td, b)
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, b)
+	}
+
+	return jwtbundle.NewSet(bundles...), nil
+}

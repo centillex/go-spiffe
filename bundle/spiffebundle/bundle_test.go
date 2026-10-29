@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
+	"crypto/mldsa"
+
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
@@ -76,10 +77,9 @@ func TestParseFailures(t *testing.T) {
 	_, err = spiffebundle.Load(td, noKeysPath)
 	require.Error(t, err)
 
-	// Token entries are rejected by the general reader instead of being
-	// admitted as token trust.
+	// Classical JWT entries are rejected; only ML-DSA-65 AKP is admitted.
 	_, err = spiffebundle.Load(td, jwtEntryPath)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+	require.ErrorContains(t, err, "classical JWT authorities are unsupported")
 
 	_, err = spiffebundle.Load(td, witEntryPath)
 	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
@@ -176,40 +176,46 @@ func TestEqualAndClone(t *testing.T) {
 	require.Len(t, bundle.X509Authorities(), 1)
 }
 
-// TestTokenOperationsUnsupported pins the strict-profile boundary for token
-// trust admission and lookup on the combined SPIFFE bundle.
-func TestTokenOperationsUnsupported(t *testing.T) {
-	key := test.NewEC256Key(t)
+func newMLDSAKey(t *testing.T) *mldsa.PublicKey {
+	t.Helper()
+	key, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	return key.PublicKey()
+}
+
+func TestJWTAuthorities(t *testing.T) {
+	key := newMLDSAKey(t)
 	authorities := map[string]crypto.PublicKey{"KEY": key}
 
 	bundle := spiffebundle.FromJWTAuthorities(td, authorities)
-	require.Empty(t, bundle.JWTAuthorities())
-	require.False(t, bundle.HasJWTAuthority("KEY"))
-	_, ok := bundle.FindJWTAuthority("KEY")
-	require.False(t, ok)
+	require.Len(t, bundle.JWTAuthorities(), 1)
+	require.True(t, bundle.HasJWTAuthority("KEY"))
+	found, ok := bundle.FindJWTAuthority("KEY")
+	require.True(t, ok)
+	require.True(t, found.(*mldsa.PublicKey).Equal(key))
 
+	require.NoError(t, bundle.AddJWTAuthority("KEY2", key))
+	bundle.RemoveJWTAuthority("KEY2")
+	bundle.SetJWTAuthorities(authorities)
+	require.Len(t, bundle.JWTAuthorities(), 1)
+
+	jwtBundle, err := bundle.GetJWTBundleForTrustDomain(td)
+	require.NoError(t, err)
+	require.True(t, jwtBundle.HasJWTAuthority("KEY"))
+	_, err = bundle.GetJWTBundleForTrustDomain(spiffeid.RequireTrustDomainFromString("other.test"))
+	require.ErrorContains(t, err, "no JWT bundle")
+
+	fromBundle := spiffebundle.FromJWTBundle(jwtBundle)
+	require.True(t, fromBundle.HasJWTAuthority("KEY"))
+
+	classical := test.NewEC256Key(t)
+	require.ErrorContains(t, bundle.AddJWTAuthority("EC", classical), "unsupported JWT authority")
+
+	// WIT remains outside this change.
 	bundle = spiffebundle.FromWITAuthorities(td, authorities)
 	require.Empty(t, bundle.WITAuthorities())
-	require.False(t, bundle.HasWITAuthority("KEY"))
-
-	require.ErrorIs(t, bundle.AddJWTAuthority("KEY", key), pqprofile.ErrUnsupported)
 	require.ErrorIs(t, bundle.AddWITAuthority("KEY", key), pqprofile.ErrUnsupported)
-	bundle.SetJWTAuthorities(authorities)
-	bundle.SetWITAuthorities(authorities)
-	bundle.RemoveJWTAuthority("KEY")
-	bundle.RemoveWITAuthority("KEY")
-	require.Empty(t, bundle.JWTAuthorities())
-	require.Empty(t, bundle.WITAuthorities())
-
-	require.True(t, bundle.JWTBundle().Empty())
-	require.True(t, bundle.WITBundle().Empty())
-
-	_, err := bundle.GetJWTBundleForTrustDomain(td)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
 	_, err = bundle.GetWITBundleForTrustDomain(td)
 	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	// Constructors from token bundles remain empty regardless of input.
-	require.True(t, spiffebundle.FromJWTBundle(jwtbundle.New(td)).Empty())
 	require.True(t, spiffebundle.FromWITBundle(witbundle.New(td)).Empty())
 }

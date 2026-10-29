@@ -1,20 +1,26 @@
 package jwtsvid_test
 
 import (
-	"errors"
+	"crypto/mldsa"
 	"fmt"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
+	"github.com/spiffe/go-spiffe/v2/pqjose"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 )
 
-// JWT-SVIDs are outside the strict profile, so validation reports the shared
-// unsupported error instead of accepting a classical token.
 func ExampleParseAndValidate() {
-	_, err := jwtsvid.ParseAndValidate("TODO", jwtbundle.NewSet(), []string{"audience"})
-	if errors.Is(err, pqprofile.ErrUnsupported) {
-		fmt.Println("JWT-SVID is unsupported")
+	key, _ := mldsa.GenerateKey(mldsa.MLDSA65())
+	token, _ := pqjose.SignJWT("example-key", []byte(`{"sub":"spiffe://example.org/workload","aud":["example"],"exp":4102444800}`), key)
+
+	bundle := jwtbundle.New(spiffeid.RequireTrustDomainFromString("example.org"))
+	_ = bundle.AddJWTAuthority("example-key", key.PublicKey())
+
+	svid, err := jwtsvid.ParseAndValidate(token, jwtbundle.NewSet(bundle), []string{"example"})
+	if err != nil {
+		panic(err)
 	}
-	// Output: JWT-SVID is unsupported
+	fmt.Println(svid.ID)
+	// Output: spiffe://example.org/workload
 }
