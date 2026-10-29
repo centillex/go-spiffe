@@ -39,6 +39,17 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## Datastore conformance and upgrades
+
+```sh
+bash scripts/pq-deploy/run-datastore.sh ../docs/evidence/step6
+```
+
+Runs the datastore conformance suite against SQLite, PostgreSQL 17, MySQL 8.0
+and MySQL 8.4, then verifies an upgrade from SPIRE v1.15.5 (schema 25) to the
+current fork's schema on PostgreSQL and MySQL. Results land in
+`evidence/step6/datastore/`. `pqsql` itself remains PostgreSQL-only.
+
 ## Attested workflow with rotation and recovery
 
 ```sh

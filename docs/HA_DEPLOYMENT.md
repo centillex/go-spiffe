@@ -105,6 +105,38 @@ must be able to verify the server before its first bundle sync. Refresh the
 out-of-band bootstrap bundle (or rely on a persisted bundle cache that already
 contains the new authority) as part of rotation operations.
 
+## Datastore support and upgrades
+
+The SQL datastore is tested against every supported engine by
+`scripts/pq-deploy/run-datastore.sh`:
+
+| Engine | Scope |
+| --- | --- |
+| SQLite | Single-server deployments; full conformance suite and upstream migration dumps |
+| PostgreSQL 17 | Conformance suite, two-server HA, cross-release upgrade |
+| MySQL 8.0 / 8.4 | Conformance suite, cross-release upgrade |
+
+The conformance suite is the fork's datastore suite run with
+`TestDialect=postgres` / `TestDialect=mysql` against real servers
+(`SQLSTORE_TEST_CONN_STRING`). It covers the datastore contract, including
+concurrent access, pagination, pruning and the schema version recorded by a
+fresh migration. The upgrade check builds SPIRE v1.15.5 (schema 25), lets it
+migrate an empty database, then starts the current fork on that database and
+requires it to reach the same schema as a fresh install (27) while serving
+health checks.
+
+```sh
+bash scripts/pq-deploy/run-datastore.sh ../docs/evidence/step6
+```
+
+Results are written to `evidence/step6/datastore/` (conformance logs, engine
+versions, schema versions).
+
+`DataStore "sql"` supports MySQL, but the `pqsql` key manager is PostgreSQL-only.
+A MySQL HA deployment therefore also needs MySQL-capable shared key custody, or
+a single-server MySQL deployment with another key manager. The tested HA
+topology remains two servers on PostgreSQL plus `pqsql`.
+
 **Backups:** back up PostgreSQL and the KEK separately. A database backup without
 the KEK cannot be used; a KEK without the database cannot sign. Restoring a
 database to an older revision can resurrect retired key slots, so coordinate
@@ -130,7 +162,8 @@ outage bound, recovery, and wrong-KEK rejection. See `evidence/step6/ha/`.
 
 - Software custody only; a PQ-capable HSM/KMS is tracked as PAR-21.
 - Datastore concurrency and performance at production scale are untested
-  (PAR-08/PAR-14).
+  (PAR-14); functional conformance and cross-release upgrades are covered for
+  PostgreSQL and MySQL (PAR-08).
 - DNS re-resolution timing and load-balancer behaviour for large fleets are not
   measured.
 - No automatic KEK rotation or key destruction attestation.
