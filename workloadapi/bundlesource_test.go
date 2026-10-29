@@ -42,7 +42,7 @@ func TestBundleSourceFailsCallsIfClosed(t *testing.T) {
 	defer api.Stop()
 
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 
 	// Set the initial response, containing both X.509 and JWT materials.
 	svid := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))
@@ -78,12 +78,12 @@ func TestBundleSourceGetsUpdates(t *testing.T) {
 
 	// Set up the CA for a few trust domains
 	domain1TD := spiffeid.RequireTrustDomainFromString("domain1.test")
-	domain1CA := test.NewCA(t, domain1TD)
+	domain1CA := test.NewPQCA(t, domain1TD)
 	domain1Bundle := domain1CA.Bundle()
 	domain1X509Bundle := domain1CA.X509Bundle()
 
 	domain2TD := spiffeid.RequireTrustDomainFromString("domain2.test")
-	domain2CA := test.NewCA(t, domain2TD)
+	domain2CA := test.NewPQCA(t, domain2TD)
 	domain2Bundle := domain2CA.Bundle()
 	domain2X509Bundle := domain2CA.X509Bundle()
 
@@ -135,7 +135,7 @@ func TestBundleSourceDoesNotReturnX509BundleIfMissingFromX509Response(t *testing
 	defer api.Stop()
 
 	domain1TD := spiffeid.RequireTrustDomainFromString("domain1.test")
-	domain1CA := test.NewCA(t, domain1TD)
+	domain1CA := test.NewPQCA(t, domain1TD)
 	domain1X509Bundle := domain1CA.X509Bundle()
 
 	domain2TD := spiffeid.RequireTrustDomainFromString("domain2.test")
@@ -166,7 +166,7 @@ func TestBundleSourceRejectsJWTBundleLookups(t *testing.T) {
 	defer api.Stop()
 
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	api.SetX509SVIDResponse(&fakeworkloadapi.X509SVIDResponse{
 		SVIDs:  []*x509svid.SVID{ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))},
 		Bundle: ca.X509Bundle(),

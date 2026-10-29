@@ -13,7 +13,7 @@ import (
 )
 
 func TestWithNamedPipeName(t *testing.T) {
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	wl := fakeworkloadapi.NewWithNamedPipeListener(t)
 	defer wl.Stop()
 

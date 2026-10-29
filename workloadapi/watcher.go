@@ -90,6 +90,7 @@ type watcher struct {
 	ownsClient bool
 
 	x509ContextFn      func(*X509Context)
+	x509ContextErrFn   func(error)
 	x509ContextSet     chan struct{}
 	x509ContextSetOnce sync.Once
 
@@ -98,14 +99,15 @@ type watcher struct {
 	jwtBundlesSetOnce sync.Once
 }
 
-func newWatcher(ctx context.Context, config watcherConfig, x509ContextFn func(*X509Context), jwtBundlesFn func(*jwtbundle.Set)) (_ *watcher, err error) {
+func newWatcher(ctx context.Context, config watcherConfig, x509ContextFn func(*X509Context), x509ContextErrFn func(error), jwtBundlesFn func(*jwtbundle.Set)) (_ *watcher, err error) {
 	w := &watcher{
-		watcherBase:    newWatcherBase(),
-		client:         config.client,
-		x509ContextFn:  x509ContextFn,
-		x509ContextSet: make(chan struct{}),
-		jwtBundlesFn:   jwtBundlesFn,
-		jwtBundlesSet:  make(chan struct{}),
+		watcherBase:      newWatcherBase(),
+		client:           config.client,
+		x509ContextFn:    x509ContextFn,
+		x509ContextErrFn: x509ContextErrFn,
+		x509ContextSet:   make(chan struct{}),
+		jwtBundlesFn:     jwtBundlesFn,
+		jwtBundlesSet:    make(chan struct{}),
 	}
 
 	// If this function fails, we need to clean up the source.
@@ -193,8 +195,9 @@ func (w *watcher) OnX509ContextUpdate(x509Context *X509Context) {
 }
 
 func (w *watcher) OnX509ContextWatchError(err error) {
-	// The watcher doesn't do anything special with the error. If logging is
-	// desired, it should be provided to the Workload API client.
+	if w.x509ContextErrFn != nil {
+		w.x509ContextErrFn(err)
+	}
 }
 
 func (w *watcher) OnJWTBundlesUpdate(jwtBundles *jwtbundle.Set) {

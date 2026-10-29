@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
@@ -15,11 +16,18 @@ import (
 )
 
 // BundleSource is a source of SPIFFE bundles maintained via the Workload API.
+//
+// Updates are validated and applied atomically. A malformed, profile-violating,
+// empty, or expired update, or a Workload API watch error, makes the source
+// unready: lookups then fail instead of serving stale trust. The next valid
+// update makes it ready again.
 type BundleSource struct {
 	watcher *watcher
+	now     func() time.Time
 
 	mtx             sync.RWMutex
 	x509Authorities map[spiffeid.TrustDomain][]*x509.Certificate
+	life            sourceLifecycle
 
 	closeMtx sync.RWMutex
 	closed   bool
@@ -35,12 +43,13 @@ func NewBundleSource(ctx context.Context, options ...BundleSourceOption) (_ *Bun
 	}
 
 	s := &BundleSource{
+		now:             time.Now,
 		x509Authorities: make(map[spiffeid.TrustDomain][]*x509.Certificate),
 	}
 
 	// JWT bundle watching is deliberately not started: token trust is outside
 	// the strict profile and must not be merged into X.509 bundles.
-	s.watcher, err = newWatcher(ctx, config.watcher, s.setX509Context, nil)
+	s.watcher, err = newWatcher(ctx, config.watcher, s.setX509Context, s.setX509ContextError, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +69,56 @@ func (s *BundleSource) Close() error {
 	return s.watcher.Close()
 }
 
+// Ready returns nil when the source holds a currently valid, profile-compliant
+// bundle set and ErrSourceUnready (possibly wrapped with a reason) otherwise.
+func (s *BundleSource) Ready() error {
+	if err := s.checkClosed(); err != nil {
+		return err
+	}
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	if err := s.readyLocked(); err != nil {
+		return wrapBundlesourceErr(err)
+	}
+	return nil
+}
+
+// State returns an immutable snapshot of the source lifecycle state.
+func (s *BundleSource) State() SourceState {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	state := s.life.state()
+	if state.Ready {
+		if err := s.validateLocked(); err != nil {
+			state.Ready = false
+			state.Reason = err.Error()
+		}
+	}
+	return state
+}
+
+// Snapshot returns an atomically consistent copy of the current bundle set and
+// lifecycle state.
+func (s *BundleSource) Snapshot() (*x509bundle.Set, SourceState, error) {
+	if err := s.checkClosed(); err != nil {
+		return nil, SourceState{}, err
+	}
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	state := s.life.state()
+	if err := s.readyLocked(); err != nil {
+		state.Ready = false
+		state.Reason = err.Error()
+		return nil, state, wrapBundlesourceErr(err)
+	}
+	set := x509bundle.NewSet()
+	for trustDomain, authorities := range s.x509Authorities {
+		set.Add(x509bundle.FromX509Authorities(trustDomain, authorities))
+	}
+	return set, state, nil
+}
+
 // GetBundleForTrustDomain returns the SPIFFE bundle for the given trust
 // domain. It implements the spiffebundle.Source interface.
 func (s *BundleSource) GetBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*spiffebundle.Bundle, error) {
@@ -69,6 +128,9 @@ func (s *BundleSource) GetBundleForTrustDomain(trustDomain spiffeid.TrustDomain)
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 
+	if err := s.readyLocked(); err != nil {
+		return nil, wrapBundlesourceErr(err)
+	}
 	x509Authorities, ok := s.x509Authorities[trustDomain]
 	if !ok {
 		return nil, wrapBundlesourceErr(fmt.Errorf("no SPIFFE bundle for trust domain %q", trustDomain))
@@ -87,11 +149,18 @@ func (s *BundleSource) GetX509BundleForTrustDomain(trustDomain spiffeid.TrustDom
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 
+	if err := s.readyLocked(); err != nil {
+		return nil, wrapBundlesourceErr(err)
+	}
 	x509Authorities, hasX509Authorities := s.x509Authorities[trustDomain]
 	if !hasX509Authorities {
 		return nil, wrapBundlesourceErr(fmt.Errorf("no X.509 bundle for trust domain %q", trustDomain))
 	}
-	return x509bundle.FromX509Authorities(trustDomain, x509Authorities), nil
+	bundle := x509bundle.FromX509Authorities(trustDomain, x509Authorities)
+	if err := bundleUsable(bundle, s.now()); err != nil {
+		return nil, wrapBundlesourceErr(fmt.Errorf("%w: %v", ErrSourceUnready, err))
+	}
+	return bundle, nil
 }
 
 // GetJWTBundleForTrustDomain is unsupported: JWT trust is outside the strict
@@ -112,28 +181,63 @@ func (s *BundleSource) Updated() <-chan struct{} {
 }
 
 func (s *BundleSource) setX509Context(x509Context *X509Context) {
+	now := s.now()
+
+	var updateErr error
+	switch {
+	case x509Context == nil:
+		updateErr = errors.New("nil X.509 context")
+	case x509Context.Bundles == nil:
+		updateErr = errors.New("missing X.509 bundle set")
+	default:
+		updateErr = validateBundles(x509Context.Bundles, now)
+	}
+
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-
-	newBundles := x509Context.Bundles.Bundles()
-
-	// Add/replace the X.509 authorities from the X.509 context. Track the trust
-	// domains represented in the new X.509 context so we can determine which
-	// existing trust domains are no longer represented.
-	trustDomains := make(map[spiffeid.TrustDomain]struct{}, len(newBundles))
-	for _, newBundle := range newBundles {
-		trustDomains[newBundle.TrustDomain()] = struct{}{}
-		s.x509Authorities[newBundle.TrustDomain()] = newBundle.X509Authorities()
+	if updateErr != nil {
+		// Fail closed: a rejected update removes all served trust.
+		s.x509Authorities = make(map[spiffeid.TrustDomain][]*x509.Certificate)
+		s.life.markUnready(updateErr.Error(), now)
+		return
 	}
 
-	// Remove the X.509 authority entries for trust domains no longer
-	// represented in the X.509 context.
-	for existingTD := range s.x509Authorities {
-		if _, ok := trustDomains[existingTD]; ok {
-			continue
-		}
-		delete(s.x509Authorities, existingTD)
+	// Apply atomically: build the replacement map first, then swap. Trust
+	// domains missing from the update are removed.
+	replacement := make(map[spiffeid.TrustDomain][]*x509.Certificate)
+	for _, newBundle := range x509Context.Bundles.Bundles() {
+		replacement[newBundle.TrustDomain()] = newBundle.X509Authorities()
 	}
+	s.x509Authorities = replacement
+	s.life.markReady(now)
+}
+
+func (s *BundleSource) setX509ContextError(err error) {
+	now := s.now()
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	if err == nil {
+		err = errors.New("workload API watch error")
+	}
+	s.life.markUnready("workload API watch error: "+err.Error(), now)
+}
+
+func (s *BundleSource) readyLocked() error {
+	if err := s.life.readyErr(); err != nil {
+		return err
+	}
+	if err := s.validateLocked(); err != nil {
+		return fmt.Errorf("%w: %v", ErrSourceUnready, err)
+	}
+	return nil
+}
+
+func (s *BundleSource) validateLocked() error {
+	set := x509bundle.NewSet()
+	for trustDomain, authorities := range s.x509Authorities {
+		set.Add(x509bundle.FromX509Authorities(trustDomain, authorities))
+	}
+	return validateBundles(set, s.now())
 }
 
 func (s *BundleSource) checkClosed() error {

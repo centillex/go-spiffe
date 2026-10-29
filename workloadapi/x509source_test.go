@@ -41,7 +41,7 @@ func TestX509SourceFailsCallsIfClosed(t *testing.T) {
 	defer api.Stop()
 
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 
 	// Set the initial X509SVIDResponse with the X509-SVID and key
 	api.SetX509SVIDResponse(&fakeworkloadapi.X509SVIDResponse{
@@ -71,7 +71,7 @@ func TestX509SourceGetX509BundleForTrustDomainRace(t *testing.T) {
 	defer api.Stop()
 
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	svid := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload"))
 
 	// Set the initial X509SVIDResponse with the X509-SVID and key.
@@ -135,11 +135,11 @@ func TestX509SourceGetsUpdates(t *testing.T) {
 
 	// Set up the CA for a few trust domains
 	domain1TD := spiffeid.RequireTrustDomainFromString("domain1.test")
-	domain1CA := test.NewCA(t, domain1TD)
+	domain1CA := test.NewPQCA(t, domain1TD)
 	domain1Bundle := domain1CA.X509Bundle()
 
 	domain2TD := spiffeid.RequireTrustDomainFromString("domain2.test")
-	domain2CA := test.NewCA(t, domain2TD)
+	domain2CA := test.NewPQCA(t, domain2TD)
 	domain2Bundle := domain2CA.X509Bundle()
 
 	svid1 := domain1CA.CreateX509SVID(spiffeid.RequireFromPath(domain1TD, "/initial"))
@@ -193,7 +193,7 @@ func TestX509SourceX509SVIDPicker(t *testing.T) {
 
 	// Set up the CA for a few trust domains
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 
 	svid1 := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload1"))
 	svid2 := ca.CreateX509SVID(spiffeid.RequireFromPath(td, "/workload2"))

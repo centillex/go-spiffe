@@ -29,7 +29,7 @@ var (
 )
 
 func TestFetchX509SVID(t *testing.T) {
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	wl := fakeworkloadapi.New(t)
 	defer wl.Stop()
 	c, err := New(context.Background(), WithAddr(wl.Addr()))
@@ -50,7 +50,7 @@ func TestFetchX509SVID(t *testing.T) {
 }
 
 func TestFetchX509SVIDs(t *testing.T) {
-	ca := test.NewCA(t, td)
+	ca := test.NewPQCA(t, td)
 	wl := fakeworkloadapi.New(t)
 	defer wl.Stop()
 	c, err := New(context.Background(), WithAddr(wl.Addr()))
@@ -81,8 +81,8 @@ func TestFetchX509SVIDs(t *testing.T) {
 }
 
 func TestFetchX509Bundles(t *testing.T) {
-	ca := test.NewCA(t, td)
-	federatedCA := test.NewCA(t, federatedTD)
+	ca := test.NewPQCA(t, td)
+	federatedCA := test.NewPQCA(t, federatedTD)
 	wl := fakeworkloadapi.New(t)
 	defer wl.Stop()
 	c, err := New(context.Background(), WithAddr(wl.Addr()))
@@ -128,7 +128,7 @@ func TestWatchX509Bundles(t *testing.T) {
 	require.Len(t, tw.X509Bundles(), 0)
 
 	// test first update
-	ca1 := test.NewCA(t, td)
+	ca1 := test.NewPQCA(t, td)
 	wl.SetX509Bundles(ca1.X509Bundle())
 
 	tw.WaitForUpdates(1)
@@ -138,7 +138,7 @@ func TestWatchX509Bundles(t *testing.T) {
 	assertX509Bundle(t, update, td, ca1.X509Bundle())
 
 	// test second update
-	ca2 := test.NewCA(t, td)
+	ca2 := test.NewPQCA(t, td)
 	wl.SetX509Bundles(ca2.X509Bundle())
 
 	tw.WaitForUpdates(1)
@@ -157,8 +157,8 @@ func TestWatchX509Bundles(t *testing.T) {
 }
 
 func TestFetchX509Context(t *testing.T) {
-	ca := test.NewCA(t, td)
-	federatedCA := test.NewCA(t, federatedTD)
+	ca := test.NewPQCA(t, td)
+	federatedCA := test.NewPQCA(t, federatedTD)
 	wl := fakeworkloadapi.New(t)
 	defer wl.Stop()
 	c, err := New(context.Background(), WithAddr(wl.Addr()))
@@ -214,8 +214,8 @@ func TestFetchX509Context(t *testing.T) {
 }
 
 func TestWatchX509Context(t *testing.T) {
-	ca := test.NewCA(t, td)
-	federatedCA := test.NewCA(t, federatedTD)
+	ca := test.NewPQCA(t, td)
+	federatedCA := test.NewPQCA(t, federatedTD)
 	wl := fakeworkloadapi.New(t)
 	defer wl.Stop()
 

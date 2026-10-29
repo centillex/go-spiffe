@@ -18,9 +18,10 @@ import (
 // Config is safe for concurrent use; sources and callbacks must also be safe.
 // This is a breaking replacement for constructors returning mutable tls.Config.
 type Config struct {
-	tls    *tls.Config
-	server bool
-	mutual bool
+	tls      *tls.Config
+	server   bool
+	mutual   bool
+	registry *connRegistry
 }
 
 func (c *Config) validate(server bool) error {
@@ -52,14 +53,14 @@ func ownedBase(opts []Option) *tls.Config {
 func TLSClientConfig(bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *Config {
 	c := ownedBase(opts)
 	hookTLSClientConfig(c, bundle, authorizer)
-	return &Config{tls: c}
+	return &Config{tls: c, registry: newConnRegistry()}
 }
 
 // MTLSClientConfig requires a completed mutual certificate exchange.
 func MTLSClientConfig(svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *Config {
 	c := ownedBase(opts)
 	hookMTLSClientConfig(c, svid, bundle, authorizer, opts...)
-	return &Config{tls: c, mutual: true}
+	return &Config{tls: c, mutual: true, registry: newConnRegistry()}
 }
 
 // WebClientConfig authenticates a PQ Web PKI server, including its hostname.
@@ -70,7 +71,7 @@ func WebClientConfig(roots *x509.CertPool, opts ...Option) *Config {
 		c.RootCAs = roots.Clone()
 	}
 	installConnectionPolicy(c, nil, nil, x509.ExtKeyUsageServerAuth, false, true, false)
-	return &Config{tls: c}
+	return &Config{tls: c, registry: newConnRegistry()}
 }
 
 // MTLSWebClientConfig requires mutual TLS with a PQ Web PKI server.
@@ -80,21 +81,21 @@ func MTLSWebClientConfig(svid x509svid.Source, roots *x509.CertPool, opts ...Opt
 		roots = roots.Clone()
 	}
 	hookMTLSWebClientConfig(c, svid, roots, opts...)
-	return &Config{tls: c, mutual: true}
+	return &Config{tls: c, mutual: true, registry: newConnRegistry()}
 }
 
 // TLSServerConfig presents a server SVID without client authentication.
 func TLSServerConfig(svid x509svid.Source, opts ...Option) *Config {
 	c := ownedBase(opts)
 	hookTLSServerConfig(c, svid, opts...)
-	return &Config{tls: c, server: true}
+	return &Config{tls: c, server: true, registry: newConnRegistry()}
 }
 
 // MTLSServerConfig requires and authorizes a client SVID.
 func MTLSServerConfig(svid x509svid.Source, bundle x509bundle.Source, authorizer Authorizer, opts ...Option) *Config {
 	c := ownedBase(opts)
 	hookMTLSServerConfig(c, svid, bundle, authorizer, opts...)
-	return &Config{tls: c, server: true, mutual: true}
+	return &Config{tls: c, server: true, mutual: true, registry: newConnRegistry()}
 }
 
 // WebServerConfig presents a PQ Web PKI credential without client authentication.
@@ -116,7 +117,7 @@ func WebServerConfig(cert *tls.Certificate, opts ...Option) *Config {
 		return &copy, nil
 	}
 	installConnectionPolicy(c, nil, nil, x509.ExtKeyUsageClientAuth, true, false, true)
-	return &Config{tls: c, server: true}
+	return &Config{tls: c, server: true, registry: newConnRegistry()}
 }
 
 // MTLSWebServerConfig presents a PQ Web PKI credential and authorizes client SVIDs.
@@ -127,7 +128,7 @@ func MTLSWebServerConfig(cert *tls.Certificate, bundle x509bundle.Source, author
 		cert = &copy
 	}
 	hookMTLSWebServerConfig(c, cert, bundle, authorizer)
-	return &Config{tls: c, server: true, mutual: true}
+	return &Config{tls: c, server: true, mutual: true, registry: newConnRegistry()}
 }
 
 // WithALPN returns an independent config with the supplied application protocols.
@@ -137,6 +138,9 @@ func (c *Config) WithALPN(protocols ...string) *Config {
 		return &Config{}
 	}
 	copy := *c
+	if copy.registry == nil {
+		copy.registry = newConnRegistry()
+	}
 	copy.tls = snapshotConfig(c.tls)
 	copy.tls.NextProtos = append([]string(nil), protocols...)
 	return &copy
@@ -159,7 +163,7 @@ func (c *Config) Client(ctx context.Context, raw net.Conn, serverName string) (*
 	if config.ServerName == "" {
 		config.ServerName = serverName
 	}
-	conn := &Conn{tls: tls.Client(raw, config), raw: raw, mutual: c.mutual}
+	conn := &Conn{tls: tls.Client(raw, config), raw: raw, mutual: c.mutual, registry: c.registry}
 	if err := conn.HandshakeContext(ctx); err != nil {
 		return nil, err
 	}
@@ -177,7 +181,7 @@ func (c *Config) Server(ctx context.Context, raw net.Conn) (*Conn, error) {
 	if raw == nil {
 		return nil, profileError("invalid server configuration or connection")
 	}
-	conn := &Conn{tls: tls.Server(raw, c.tls), raw: raw, mutual: c.mutual}
+	conn := &Conn{tls: tls.Server(raw, c.tls), raw: raw, mutual: c.mutual, registry: c.registry}
 	if err := conn.HandshakeContext(ctx); err != nil {
 		return nil, err
 	}
@@ -230,18 +234,23 @@ func (l *ownedListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Conn{tls: tls.Server(raw, l.config.tls), raw: raw, mutual: l.config.mutual}, nil
+	return &Conn{tls: tls.Server(raw, l.config.tls), raw: raw, mutual: l.config.mutual, registry: l.config.registry}, nil
 }
 
 // Conn is a policy-checked net.Conn. It exposes neither raw socket nor mutable
 // TLS config. Handshake and application I/O share a single final policy decision.
-// Connection lifetime/revocation after authentication is separate lifecycle work.
+// Credential expiry bounds I/O; Config.RetireExpired/RetireAll provide explicit closure.
+// See docs/LIFECYCLE.md for the synchronization guarantees.
 type Conn struct {
 	tls          *tls.Conn
 	raw          net.Conn
 	mutual       bool
 	once         sync.Once
 	handshakeErr error
+
+	registry  *connRegistry
+	expiresAt time.Time
+	closeOnce sync.Once
 }
 
 func (c *Conn) Handshake() error { return c.HandshakeContext(context.Background()) }
@@ -264,6 +273,15 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 		}
 		if c.handshakeErr != nil {
 			_ = c.raw.Close()
+		} else {
+			c.expiresAt = credentialDeadline(c.tls.ConnectionState())
+			c.registry.add(c, c.expiresAt)
+			// Bound application I/O by credential expiry so a connection
+			// cannot outlive the credentials that authenticated it. Callers
+			// can still close it proactively or retire it via RetireExpired.
+			if !c.expiresAt.IsZero() {
+				_ = c.raw.SetDeadline(c.expiresAt)
+			}
 		}
 	})
 	return c.handshakeErr
@@ -284,7 +302,22 @@ func (c *Conn) Close() error {
 	if c == nil || c.tls == nil {
 		return net.ErrClosed
 	}
-	return c.tls.Close()
+	return c.closeUnderlying()
+}
+
+// closeUnderlying closes the TLS connection at most once and unregisters it.
+func (c *Conn) closeUnderlying() error {
+	var err error
+	first := false
+	c.closeOnce.Do(func() {
+		first = true
+		c.registry.remove(c)
+		err = c.tls.Close()
+	})
+	if !first {
+		return net.ErrClosed
+	}
+	return err
 }
 func (c *Conn) LocalAddr() net.Addr {
 	if c == nil || c.tls == nil {
@@ -302,19 +335,30 @@ func (c *Conn) SetDeadline(t time.Time) error {
 	if c == nil || c.tls == nil {
 		return net.ErrClosed
 	}
-	return c.tls.SetDeadline(t)
+	return c.tls.SetDeadline(c.capDeadline(t))
 }
 func (c *Conn) SetReadDeadline(t time.Time) error {
 	if c == nil || c.tls == nil {
 		return net.ErrClosed
 	}
-	return c.tls.SetReadDeadline(t)
+	return c.tls.SetReadDeadline(c.capDeadline(t))
 }
 func (c *Conn) SetWriteDeadline(t time.Time) error {
 	if c == nil || c.tls == nil {
 		return net.ErrClosed
 	}
-	return c.tls.SetWriteDeadline(t)
+	return c.tls.SetWriteDeadline(c.capDeadline(t))
+}
+
+// capDeadline prevents callers from extending I/O past credential expiry.
+func (c *Conn) capDeadline(t time.Time) time.Time {
+	if c.expiresAt.IsZero() {
+		return t
+	}
+	if t.IsZero() || t.After(c.expiresAt) {
+		return c.expiresAt
+	}
+	return t
 }
 
 // ConnectionState returns detached certificate/byte slices, not mutable internal state.

@@ -20,9 +20,11 @@ unsupported](docs/TOKEN_UNSUPPORTED.md): every public token entry point reports
 `pqprofile.ErrUnsupported` and no classical fallback exists. [ML-DSA bundle
 encoding and strict X.509 admission](docs/PQ_BUNDLE_FORMAT.md) include an
 independently implemented format round trip. A local two-domain PQ deployment is
-recorded in [the deployment status](docs/REAL_DEPLOYMENT_STATUS.md). Lifecycle
-and recovery, secure attestation review, independent TLS/issuer interoperability,
-and independent security review remain open. The complete workspace roadmap is
+recorded in [the deployment status](docs/REAL_DEPLOYMENT_STATUS.md). [Source
+lifecycle, recovery, and connection
+retirement](docs/LIFECYCLE.md) are implemented and tested with explicit
+synchronization guarantees. Secure attestation review, independent TLS/issuer
+interoperability, and independent security review remain open. The complete workspace roadmap is
 `../docs/IMPLEMENTATION_PLAN.md` (outside this Go module).
 
 ## Documentation
