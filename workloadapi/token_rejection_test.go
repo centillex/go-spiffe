@@ -22,7 +22,7 @@ func TestTokenAPIsAreUnsupported(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	client, err := workloadapi.New(ctx, workloadapi.WithAddr("unix:///nonexistent/qspiffe-workload.sock"))
+	client, err := workloadapi.New(ctx, workloadapi.WithAddr("tcp://127.0.0.1:1"))
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -72,7 +72,7 @@ func TestConvenienceTokenAPIsAreUnsupported(t *testing.T) {
 	td := spiffeid.RequireTrustDomainFromString("domain.test")
 	id := spiffeid.RequireFromPath(td, "/workload")
 	params := jwtsvid.Params{Subject: id, Audience: id.String()}
-	opts := []workloadapi.ClientOption{workloadapi.WithAddr("unix:///nonexistent/qspiffe-workload.sock")}
+	opts := []workloadapi.ClientOption{workloadapi.WithAddr("tcp://127.0.0.1:1")}
 
 	_, err := workloadapi.FetchJWTSVID(ctx, params, opts...)
 	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
