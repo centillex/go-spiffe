@@ -77,23 +77,31 @@ the host root is trusted, and the workflow has not been reviewed independently.
 bash scripts/pq-deploy/run-ha.sh ../docs/evidence/step6
 ```
 
-Requires Docker for PostgreSQL. The script:
+Requires Docker. Two SPIRE servers run in containers on a user-defined network
+with a shared `spire-server` network alias, so the agent resolves the name to two
+A records through Docker's embedded DNS. Both servers share a PostgreSQL
+datastore and the `pqsql` key manager (ML‑DSA‑65 keys AES‑256‑GCM encrypted with a
+KEK and stored in PostgreSQL). The agent runs in a container with the host PID
+namespace so a host-run workload probe can be attested by uid/path/sha256.
 
-1. starts a PostgreSQL container used as the shared SPIRE datastore;
-2. starts two SPIRE servers with the same `pqsql` key manager: ML‑DSA‑65 keys are
-   AES‑256‑GCM encrypted in PostgreSQL and shared by both servers;
-3. puts a loopback TCP load balancer in front of them and points the agent at it;
-4. verifies both servers expose the same CA authority fingerprint;
-5. kills the first server, restarts the agent, and verifies the second server
-   issues a fresh SVID with the same anchor;
-6. stops all servers and confirms cached credentials stop working when the SVID
-   expires (bounded by SVID TTL, not instant);
-7. restarts the survivor and the agent and verifies recovery;
-8. starts a third server with the wrong KEK and verifies it is rejected.
+The script records:
 
-Design and threat model: `../../../KEY_CUSTODY.md` (workspace). The load balancer
-is a local test helper; DNS‑based multi-address discovery and leader failover
-during CA rotation are not exercised.
+1. DNS resolution of `spire-server` to two addresses and the agent's established
+   connections to both;
+2. identical bundles from both servers (shared CA key);
+3. initial issuance verified against an externally pinned anchor;
+4. server loss: the agent restarts, obtains a fresh SVID from the surviving
+   server, and the anchor stays the same;
+5. journal-coordinated CA rotation that completes **while one server is down**;
+   fresh SVIDs are signed by an authority that was not in the initial bundle;
+6. the restarted server serving the same rotated authorities from shared custody;
+7. total outage: cached credentials stop working when the SVID expires (bounded
+   by SVID TTL, not instant);
+8. recovery after restarting the survivor and agent;
+9. a third server with the wrong KEK is rejected and never healthy.
+
+Design and threat model: `../../../KEY_CUSTODY.md` (workspace). Datastore
+concurrency at production scale remains open (PAR-08/PAR-14).
 
 ## Two-domain federation workflow
 

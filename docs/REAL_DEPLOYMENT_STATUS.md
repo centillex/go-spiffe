@@ -71,14 +71,17 @@ All scripts ran on Linux/amd64 with Go 1.27.3 and passed. Evidence is under
 
 ### HA with shared encrypted key custody (`ha-run.log`, `ha/`)
 
-Two SPIRE servers shared one PostgreSQL datastore and a new `pqsql` key manager
-that stores ML-DSA-65 keys AES-256-GCM encrypted, upsert-only, with a KEK file.
-Evidence records identical CA fingerprints on both servers, fresh issuance from
-the surviving server after the first was killed, denial after the cached SVID
-expired during a total outage (43s with a 45s TTL), recovery, and rejection of a
-server configured with the wrong KEK. Loopback TCP load balancing is used; DNS
-multi-address discovery and leader failover during CA rotation remain open
-(PAR-07). Design and threat model: `../../docs/KEY_CUSTODY.md`.
+Two containerized SPIRE servers shared a PostgreSQL datastore and the `pqsql`
+key manager (ML-DSA-65, AES-256-GCM encrypted, KEK-protected). The agent resolved
+`spire-server` to two Docker DNS A records and held connections to both servers.
+Evidence records: identical bundle authorities; fresh issuance from the surviving
+server after the first was stopped; a journal-coordinated CA rotation completing
+with one server down, with new SVIDs signed by an authority absent from the
+initial bundle; the restarted server serving the same rotated authorities;
+denial after the cached SVID expired during a total outage; recovery; and
+rejection of a server with the wrong KEK. Design and threat model:
+`../../docs/KEY_CUSTODY.md`. Datastore behaviour at production scale remains open
+(PAR-08/PAR-14).
 
 ### Other workflows (unchanged, re-run at the merged head)
 
