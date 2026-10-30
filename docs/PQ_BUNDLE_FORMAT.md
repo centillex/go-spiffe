@@ -2,8 +2,10 @@
 
 Step 5 implements a narrow RFC 9964 certificate-entry codec, public bundle
 round trips, an X.509-only trust reader, and independent format validation.
-This is not real federation deployment, independent token interoperability,
-source lifecycle assurance, or completion of steps 6–10.
+For stock consumers that cannot parse AKP JSON, see the tested PEM bridge in
+[PQ bundle interoperability](PQ_BUNDLE_INTEROP.md). This is not real federation
+deployment, independent token interoperability, source lifecycle assurance, or
+completion of steps 6–10.
 
 ## Standard wire representation
 

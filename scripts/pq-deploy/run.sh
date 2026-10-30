@@ -191,6 +191,57 @@ if ! grep -q '"kty": "AKP"' "$evidence/deployment/bundle.jwks.json" ||
   fail=1
 fi
 
+# Export the public X.509 chain and bundle, then bridge the AKP JSON bundle to
+# a standard PEM bundle that stock SPIRE/go-spiffe can consume.
+x509_export="$evidence/deployment/x509-export"
+if ! (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-x509-export \
+    -endpoint "unix://$agent_dir/api.sock" -dir "$x509_export" \
+    > /dev/null 2>"$work/log/x509-export.err"); then
+  echo "FAIL: could not export public X.509 chain" >&2
+  cat "$work/log/x509-export.err" >&2
+  fail=1
+fi
+if ! (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-bundle-bridge \
+    -in "$(realpath "$evidence/deployment/bundle.jwks.json")" \
+    -out "$(realpath "$evidence/deployment/bridged-bundle.pem")" \
+    -trust-domain pq.example 2>"$work/log/bundle-bridge.err"); then
+  echo "FAIL: could not bridge AKP bundle to PEM" >&2
+  cat "$work/log/bundle-bridge.err" >&2
+  fail=1
+fi
+
+if ! (cd "$spire" && GOTOOLCHAIN=local go run ./scripts/pq-bundle-bridge \
+    -in "$(realpath "$evidence/deployment/bridged-bundle.pem")" \
+    -out "$(realpath "$evidence/deployment/bridged-bundle-roundtrip.json")" \
+    -out-format spiffe -trust-domain pq.example 2>"$work/log/bundle-bridge-reverse.err"); then
+  echo "FAIL: could not bridge PEM bundle back to AKP JSON" >&2
+  cat "$work/log/bundle-bridge-reverse.err" >&2
+  fail=1
+fi
+if ! grep -q '"kty":"AKP"' "$evidence/deployment/bridged-bundle-roundtrip.json" ||
+   grep -q '"priv"' "$evidence/deployment/bridged-bundle-roundtrip.json"; then
+  echo "FAIL: reverse-bridged bundle is not a public AKP JWKS" >&2
+  fail=1
+fi
+
+# Optional stock-consumer interop: verify the chain with unmodified go-spiffe.
+if [[ -n "${PQ_STOCK_INTEROP:-}" ]]; then
+  if "$PQ_STOCK_INTEROP" \
+      -chain "$x509_export/chain.pem" \
+      -bundle "$evidence/deployment/bridged-bundle.pem" \
+      -id spiffe://pq.example/workload/app -td pq.example \
+      > "$evidence/deployment/stock-interop.json" 2>"$work/log/stock-interop.err"; then
+    if ! grep -q '"verified":true' "$evidence/deployment/stock-interop.json"; then
+      echo "FAIL: stock consumer did not verify the bridged bundle" >&2
+      fail=1
+    fi
+  else
+    echo "FAIL: stock go-spiffe consumer verification failed" >&2
+    cat "$work/log/stock-interop.err" >&2
+    fail=1
+  fi
+fi
+
 # Optional independent JOSE verification: feed a freshly fetched token to a
 # separate ML-DSA implementation and check the signature against the exported
 # AKP JWKS. The token is streamed and never written to disk.
@@ -247,6 +298,7 @@ cp "$work/log/agent.log" "$evidence/deployment/agent.log"
 
 # The deployment must not leave private key material inside exported evidence.
 for f in "$evidence/deployment"/*; do
+  [[ -f "$f" ]] || continue
   if grep -qiE 'BEGIN (EC |RSA |ML-DSA )?PRIVATE KEY' "$f"; then
     echo "FAIL: private key material found in $f" >&2
     fail=1

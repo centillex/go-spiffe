@@ -18,7 +18,8 @@ legacy hook/certificate-only authentication APIs fail explicitly. See the linked
 migration guide before upgrading. [JWT and WIT SVIDs are signed and validated with ML-DSA-65 AKP keys](docs/TOKEN_SUPPORT.md);
 classical JOSE algorithms and `alg: none` are rejected. [ML-DSA bundle
 encoding and strict X.509 admission](docs/PQ_BUNDLE_FORMAT.md) include an
-independently implemented format round trip. A local two-domain PQ deployment is
+independently implemented format round trip; a tested PEM bridge lets stock
+go-spiffe consume X.509 trust ([bundle interop](docs/PQ_BUNDLE_INTEROP.md)). A local two-domain PQ deployment is
 recorded in [the deployment status](docs/REAL_DEPLOYMENT_STATUS.md). [Source
 lifecycle, recovery, and connection
 retirement](docs/LIFECYCLE.md) are implemented and tested with explicit
