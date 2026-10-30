@@ -39,6 +39,17 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## Federation profiles
+
+```sh
+bash scripts/pq-deploy/run-federation-spiffe.sh ../docs/evidence/step6
+```
+
+Runs `https_spiffe` federation with SPIFFE-authenticated bundle endpoints, CA
+rotation refresh, trust withdrawal and plaintext/redirect rejection. The
+`https_web` path is covered by `scripts/pq-cross-domain/run.sh`; see
+[`docs/FEDERATION.md`](../../docs/FEDERATION.md).
+
 ## Node credential lifecycle
 
 ```sh
