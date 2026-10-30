@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"reflect"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
@@ -132,7 +133,16 @@ func install(config *tls.Config, owned *tlsconfig.Config) {
 	if clone == nil {
 		return
 	}
-	*config = *clone //nolint:govet // hooks run before the config is used; callers must not share it concurrently
+	// Copy exported fields individually so the caller's unexported lock state is
+	// preserved. The hook is expected to run before the config is used.
+	dst := reflect.ValueOf(config).Elem()
+	src := reflect.ValueOf(clone).Elem()
+	for i := 0; i < src.NumField(); i++ {
+		if src.Type().Field(i).PkgPath != "" {
+			continue
+		}
+		dst.Field(i).Set(src.Field(i))
+	}
 }
 
 // VerifyPeerCertificate returns an upstream-shaped verification callback that
