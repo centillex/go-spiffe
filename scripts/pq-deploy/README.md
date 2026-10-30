@@ -39,6 +39,16 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## ML-DSA upstream authority
+
+```sh
+bash scripts/pq-deploy/run-upstream-authority.sh ../docs/evidence/step6
+```
+
+Runs a downstream SPIRE server with an ML-DSA intermediate signed by an upstream
+SPIRE server and verifies the leaf→intermediate→root chain. See
+[`docs/UPSTREAM_AUTHORITY.md`](../../docs/UPSTREAM_AUTHORITY.md).
+
 ## Control plane
 
 ```sh
