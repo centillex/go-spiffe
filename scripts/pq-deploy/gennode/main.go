@@ -25,6 +25,7 @@ func write(path, blockType string, der []byte) {
 
 func main() {
 	dir := flag.String("dir", "", "output directory")
+	expired := flag.Bool("expired", false, "generate an already-expired node certificate")
 	flag.Parse()
 	if *dir == "" {
 		panic("dir required")
@@ -72,6 +73,10 @@ func main() {
 		NotBefore:    now.Add(-time.Minute),
 		NotAfter:     now.Add(50 * time.Minute),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	if *expired {
+		nodeTemplate.NotBefore = now.Add(-2 * time.Hour)
+		nodeTemplate.NotAfter = now.Add(-time.Hour)
 	}
 	nodeDER, err := x509.CreateCertificate(rand.Reader, nodeTemplate, caCert, nodeKey.Public(), caKey)
 	if err != nil {

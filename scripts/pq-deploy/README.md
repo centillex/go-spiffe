@@ -39,6 +39,16 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## Node credential lifecycle
+
+```sh
+bash scripts/pq-deploy/run-node-lifecycle.sh ../docs/evidence/step6
+```
+
+Exercises two-node-CA overlap, old-CA removal rejection, node ban, untrusted CA,
+expired certificate and continued workload issuance from the surviving agent.
+See [`docs/NODE_LIFECYCLE.md`](../../docs/NODE_LIFECYCLE.md).
+
 ## Datastore conformance and upgrades
 
 ```sh
