@@ -39,6 +39,15 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## Control plane
+
+```sh
+bash scripts/pq-deploy/run-control-plane.sh ../docs/evidence/step6
+```
+
+Covers ML-DSA admin SVIDs, audit logging, Workload API rate limiting and Envoy
+SDS delivery. See [`docs/CONTROL_PLANE.md`](../../docs/CONTROL_PLANE.md).
+
 ## Federation profiles
 
 ```sh
