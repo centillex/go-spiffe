@@ -131,6 +131,19 @@ func MTLSWebServerConfig(cert *tls.Certificate, bundle x509bundle.Source, author
 	return &Config{tls: c, server: true, mutual: true, registry: newConnRegistry()}
 }
 
+// CompatibilityTLSConfig returns a copy of the underlying *tls.Config for
+// source-compatible callers that still expect a raw *tls.Config.
+//
+// The copy retains the policy callbacks installed by this package, but the
+// caller can mutate or replace them afterward; such mutations are outside the
+// owned API's guarantees. Prefer Config.Client/Server/DialContext/Listener.
+func (c *Config) CompatibilityTLSConfig() *tls.Config {
+	if c == nil || c.tls == nil {
+		return nil
+	}
+	return c.tls.Clone()
+}
+
 // WithALPN returns an independent config with the supplied application protocols.
 // This cannot change TLS/authentication/session policy.
 func (c *Config) WithALPN(protocols ...string) *Config {

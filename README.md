@@ -14,8 +14,9 @@ This working tree is implementing `qspiffe-pq-v1`; it is **not yet a strict-PQ
 SDK or production-ready PQ deployment**. [Certificate-path and transport
 enforcement](docs/STRICT_TLS_STATUS.md) now uses owned configurations and
 connections. Constructors return `*tlsconfig.Config`, not mutable `*tls.Config`;
-legacy hook/certificate-only authentication APIs fail explicitly. See the linked
-migration guide before upgrading. [JWT and WIT SVIDs are signed and validated with ML-DSA-65 AKP keys](docs/TOKEN_SUPPORT.md);
+legacy hook/certificate-only authentication APIs fail explicitly. A
+[`tlsconfig/compat`](docs/SDK_COMPATIBILITY.md) package restores the
+upstream-shaped raw-config surface for source migration. [JWT and WIT SVIDs are signed and validated with ML-DSA-65 AKP keys](docs/TOKEN_SUPPORT.md);
 classical JOSE algorithms and `alg: none` are rejected. [ML-DSA bundle
 encoding and strict X.509 admission](docs/PQ_BUNDLE_FORMAT.md) include an
 independently implemented format round trip; a tested PEM bridge lets stock
