@@ -36,8 +36,8 @@ boundaries are separate.
 `spiffebundle.Load`, `Read`, `Parse`, and `Bundle.Marshal` support native
 ML-DSA-65 authority entries, without changing the pinned go-jose dependency or
 adding PQ token algorithms. These general data APIs still admit classical X.509
-authorities for compatibility. JWT entries are admitted only as ML-DSA-65 AKP
-public keys; WIT remains rejected: see [token support](TOKEN_SUPPORT.md).
+authorities for compatibility. JWT and WIT entries are admitted only as
+ML-DSA-65 AKP public keys: see [token support](TOKEN_SUPPORT.md).
 Decoding alone is not strict-profile trust admission.
 
 Use `ParseX509Only` or `ReadX509Only` for strict-profile X.509 trust admission.

@@ -2,82 +2,91 @@ package workloadapi_test
 
 import (
 	"context"
+	"crypto/mldsa"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/exp/svid/witsvid"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
+	"github.com/spiffe/go-spiffe/v2/internal/test/fakeworkloadapi"
+	"github.com/spiffe/go-spiffe/v2/pqjose"
+	"github.com/spiffe/go-spiffe/v2/proto/spiffe/workload"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"github.com/stretchr/testify/require"
 )
 
-// TestWITAPIsAreUnsupported pins the remaining token-profile boundary: WIT
-// requests fail before any RPC, so there is no hidden fallback.
-func TestWITAPIsAreUnsupported(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+func TestFetchWITSVID(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	client, err := workloadapi.New(ctx, workloadapi.WithAddr("tcp://127.0.0.1:1"))
+	api := fakeworkloadapi.New(t)
+	defer api.Stop()
+
+	td := spiffeid.RequireTrustDomainFromString("domain.test")
+	id := spiffeid.RequireFromPath(td, "/workload")
+	serverKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	workloadKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+
+	cnfJWK, err := pqjose.MarshalPublicJWK("workload-key", workloadKey.PublicKey())
+	require.NoError(t, err)
+	var cnf map[string]any
+	require.NoError(t, json.Unmarshal(cnfJWK, &cnf))
+	claims, err := json.Marshal(map[string]any{
+		"sub": id.String(),
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"cnf": map[string]any{"jwk": cnf},
+	})
+	require.NoError(t, err)
+	token, err := pqjose.SignJWTWithType("wit+jwt", "wit-key", claims, serverKey)
+	require.NoError(t, err)
+
+	privateJWK, err := pqjose.MarshalPrivateJWK("workload-key", workloadKey)
+	require.NoError(t, err)
+	api.SetWITSVIDResponse(&workload.WITSVIDResponse{
+		Svids: []*workload.WITSVID{{
+			SpiffeId:   id.String(),
+			WitSvid:    token,
+			WitSvidKey: string(privateJWK),
+			Hint:       "hint",
+		}},
+	})
+	bundle := witbundle.New(td)
+	require.NoError(t, bundle.AddWITAuthority("wit-key", serverKey.PublicKey()))
+	api.SetWITBundles(bundle)
+
+	client, err := workloadapi.New(ctx, workloadapi.WithAddr(api.Addr()))
 	require.NoError(t, err)
 	defer client.Close()
 
-	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	id := spiffeid.RequireFromPath(td, "/workload")
+	svid, err := client.FetchWITSVID(ctx, id.String())
+	require.NoError(t, err)
+	require.Equal(t, id, svid.ID)
+	require.Equal(t, "hint", svid.Hint)
+	require.NotNil(t, svid.PrivateKey)
+	require.True(t, svid.PublicKey.Equal(svid.PrivateKey.PublicKey()))
 
-	witSVID, err := client.FetchWITSVID(ctx, id.String())
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-	require.Nil(t, witSVID)
+	validated, err := witsvid.ParseAndValidate(svid.Marshal(), bundle)
+	require.NoError(t, err)
+	require.Equal(t, id, validated.ID)
+	require.True(t, validated.PublicKey.Equal(workloadKey.PublicKey()))
 
-	witSVIDs, err := client.FetchWITSVIDs(ctx, id.String())
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-	require.Nil(t, witSVIDs)
+	bundles, err := client.FetchWITBundles(ctx)
+	require.NoError(t, err)
+	fetched, err := bundles.GetWITBundleForTrustDomain(td)
+	require.NoError(t, err)
+	require.True(t, fetched.HasWITAuthority("wit-key"))
 
-	require.ErrorIs(t, client.WatchWITSVIDs(ctx, noopWITSVIDWatcher{}, id.String()), pqprofile.ErrUnsupported)
-
-	witBundles, err := client.FetchWITBundles(ctx)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-	require.Nil(t, witBundles)
-
-	require.ErrorIs(t, client.WatchWITBundles(ctx, noopWITBundleWatcher{}), pqprofile.ErrUnsupported)
+	// A modified signature must not validate.
+	tampered := []byte(token)
+	if tampered[len(tampered)-1] == 'A' {
+		tampered[len(tampered)-1] = 'B'
+	} else {
+		tampered[len(tampered)-1] = 'A'
+	}
+	_, err = witsvid.ParseAndValidate(string(tampered), bundle)
+	require.ErrorContains(t, err, "signature verification failed")
 }
-
-func TestWITConvenienceAPIsAreUnsupported(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	td := spiffeid.RequireTrustDomainFromString("domain.test")
-	id := spiffeid.RequireFromPath(td, "/workload")
-	opts := []workloadapi.ClientOption{workloadapi.WithAddr("tcp://127.0.0.1:1")}
-
-	_, err := workloadapi.FetchWITSVID(ctx, id.String(), opts...)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	_, err = workloadapi.FetchWITSVIDs(ctx, id.String(), opts...)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	_, err = workloadapi.FetchWITBundles(ctx, opts...)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-}
-
-func TestWITSourceCannotBeConstructed(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	witSource, err := workloadapi.NewWITSource(ctx)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-	require.Nil(t, witSource)
-}
-
-type noopWITSVIDWatcher struct{}
-
-func (noopWITSVIDWatcher) OnWITSVIDsUpdate([]*witsvid.SVID) {}
-
-func (noopWITSVIDWatcher) OnWITSVIDsWatchError(error) {}
-
-type noopWITBundleWatcher struct{}
-
-func (noopWITBundleWatcher) OnWITBundlesUpdate(*witbundle.Set) {}
-
-func (noopWITBundleWatcher) OnWITBundlesWatchError(error) {}

@@ -41,6 +41,9 @@ server {
     log_level = "INFO"
     ca_key_type = "ml-dsa-65"
     strict_pq = true
+    experimental {
+        enable_wit_svids = true
+    }
 }
 plugins {
     DataStore "sql" {
@@ -72,6 +75,9 @@ agent {
     strict_pq = true
     agent_svid_key_type = "ml-dsa-65"
     workload_x509_svid_key_type = "ml-dsa-65"
+    experimental {
+        enable_wit_svids = true
+    }
 }
 plugins {
     KeyManager "disk" {
@@ -152,6 +158,7 @@ for _ in $(seq 1 60); do
       -id spiffe://pq.example/workload/app \
       -anchor-sha256 "$anchor" \
       -jwt-audience spiffe://pq.example/audience \
+      -wit \
       -timeout 10s > "$evidence/deployment/workload-check.json" 2>"$work/log/check.err"); then
     break
   fi
@@ -160,7 +167,10 @@ done
 
 if ! grep -q '"status":"credential_path_verified"' "$evidence/deployment/workload-check.json" 2>/dev/null ||
    ! grep -q '"jwt_verified":true' "$evidence/deployment/workload-check.json" 2>/dev/null ||
-   ! grep -q '"jwt_tamper_rejected":true' "$evidence/deployment/workload-check.json" 2>/dev/null; then
+   ! grep -q '"jwt_tamper_rejected":true' "$evidence/deployment/workload-check.json" 2>/dev/null ||
+   ! grep -q '"wit_verified":true' "$evidence/deployment/workload-check.json" 2>/dev/null ||
+   ! grep -q '"wit_key_bound":true' "$evidence/deployment/workload-check.json" 2>/dev/null ||
+   ! grep -q '"wit_proof_verified":true' "$evidence/deployment/workload-check.json" 2>/dev/null; then
   echo "FAIL: workload credential check did not pass" >&2
   cat "$work/log/check.err" >&2
   tail -60 "$work/log/agent.log" >&2

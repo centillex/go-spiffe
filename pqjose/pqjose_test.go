@@ -77,6 +77,20 @@ func TestParseRejectsClassicalAndInsecureAlgorithms(t *testing.T) {
 	}
 }
 
+func TestParseWITTokenType(t *testing.T) {
+	key := testKey(t)
+	signed, err := SignJWTWithType("wit+jwt", "key-1", []byte(`{}`), key)
+	require.NoError(t, err)
+
+	_, err = ParseJWT(signed)
+	require.ErrorContains(t, err, "unsupported token type")
+
+	parsed, err := ParseJWTWithTypes(signed, "wit+jwt")
+	require.NoError(t, err)
+	require.Equal(t, "wit+jwt", parsed.Header().Type)
+	require.NoError(t, parsed.Verify(key.PublicKey()))
+}
+
 func TestParseRejectsBadTokenType(t *testing.T) {
 	payload := b64.EncodeToString([]byte(`{}`))
 	header := b64.EncodeToString([]byte(`{"alg":"ML-DSA-65","typ":"at+jwt"}`))

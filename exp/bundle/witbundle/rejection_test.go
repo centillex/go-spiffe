@@ -1,80 +1,76 @@
 package witbundle_test
 
 import (
-	"bytes"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"os"
-	"path/filepath"
+	"crypto/mldsa"
 	"testing"
 
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	td      = spiffeid.RequireTrustDomainFromString("domain.test")
-	td2     = spiffeid.RequireTrustDomainFromString("other.org")
-	jwksDoc = []byte(`{"keys":[{"kty":"EC","kid":"KEY","crv":"P-256","x":"abc","y":"def","use":"wit-svid"}]}`)
-)
+var td = spiffeid.RequireTrustDomainFromString("domain.test")
 
-func TestUnsupportedOperations(t *testing.T) {
-	bundle := witbundle.New(td)
-
-	_, err := witbundle.Load(td, filepath.Join(t.TempDir(), "missing.json"))
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	_, err = witbundle.Read(td, bytes.NewReader(jwksDoc))
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	_, err = witbundle.Parse(td, jwksDoc)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	_, err = bundle.Marshal()
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-
-	_, err = bundle.GetWITBundleForTrustDomain(td)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+func newKey(t *testing.T) *mldsa.PublicKey {
+	t.Helper()
+	key, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	require.NoError(t, err)
+	return key.PublicKey()
 }
 
-func TestAuthoritiesAreNeverAdmitted(t *testing.T) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	authorities := map[string]crypto.PublicKey{"KEY": &key.PublicKey}
+func TestAuthoritiesCRUD(t *testing.T) {
+	bundle := witbundle.New(td)
+	key := newKey(t)
+	require.NoError(t, bundle.AddWITAuthority("KEY", key))
+	require.True(t, bundle.HasWITAuthority("KEY"))
+	found, ok := bundle.FindWITAuthority("KEY")
+	require.True(t, ok)
+	require.True(t, found.(*mldsa.PublicKey).Equal(key))
 
-	bundle := witbundle.FromWITAuthorities(td, authorities)
-	require.True(t, bundle.Empty())
-	require.Empty(t, bundle.WITAuthorities())
-	require.False(t, bundle.HasWITAuthority("KEY"))
-	_, ok := bundle.FindWITAuthority("KEY")
-	require.False(t, ok)
-
-	require.ErrorIs(t, bundle.AddWITAuthority("KEY", &key.PublicKey), pqprofile.ErrUnsupported)
-	bundle.SetWITAuthorities(authorities)
 	bundle.RemoveWITAuthority("KEY")
 	require.True(t, bundle.Empty())
-	require.Empty(t, bundle.WITAuthorities())
+
+	require.Error(t, bundle.AddWITAuthority("", key))
+	require.ErrorContains(t, bundle.AddWITAuthority("CLASSICAL", "not a key"), "unsupported WIT authority")
 }
 
-func TestBundleIdentityAndEquality(t *testing.T) {
-	bundle := witbundle.FromWITAuthorities(td, nil)
-	require.Equal(t, td, bundle.TrustDomain())
-	require.True(t, bundle.Equal(witbundle.New(td)))
-	require.False(t, bundle.Equal(witbundle.New(td2)))
-	require.False(t, bundle.Equal(nil))
-	require.True(t, bundle.Clone().Equal(bundle))
-	var nilBundle *witbundle.Bundle
-	require.Nil(t, nilBundle.Clone())
-	require.True(t, nilBundle.Equal(nil))
+func TestParseMarshalRoundTrip(t *testing.T) {
+	bundle := witbundle.New(td)
+	key := newKey(t)
+	require.NoError(t, bundle.AddWITAuthority("KEY", key))
+
+	encoded, err := bundle.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"kty":"AKP"`)
+	require.Contains(t, string(encoded), `"use":"wit-svid"`)
+	require.NotContains(t, string(encoded), `"priv"`)
+
+	parsed, err := witbundle.Parse(td, encoded)
+	require.NoError(t, err)
+	require.True(t, bundle.Equal(parsed))
 }
 
-func TestLoadRejectsBeforeReading(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bundle.json")
-	require.NoError(t, os.WriteFile(path, jwksDoc, 0600))
-	_, err := witbundle.Load(td, path)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+func TestParseRejectsClassicalAndPrivateEntries(t *testing.T) {
+	_, err := witbundle.Parse(td, []byte(`{"keys":[{"kty":"EC","kid":"KEY","crv":"P-256","x":"AA","y":"AA"}]}`))
+	require.ErrorContains(t, err, "unsupported key type")
+
+	_, err = witbundle.Parse(td, []byte(`{"keys":[{"kty":"AKP","alg":"ML-DSA-65","kid":"KEY","pub":"AA","priv":"AA"}]}`))
+	require.ErrorContains(t, err, "private material")
+}
+
+func TestSetDropsUnsupported(t *testing.T) {
+	bundle := witbundle.New(td)
+	key := newKey(t)
+	bundle.SetWITAuthorities(map[string]crypto.PublicKey{"KEY": key, "CLASSICAL": nil})
+	require.Len(t, bundle.WITAuthorities(), 1)
+}
+
+func TestGetWITBundleForTrustDomain(t *testing.T) {
+	bundle := witbundle.New(td)
+	got, err := bundle.GetWITBundleForTrustDomain(td)
+	require.NoError(t, err)
+	require.Same(t, bundle, got)
+	_, err = bundle.GetWITBundleForTrustDomain(spiffeid.RequireTrustDomainFromString("other.test"))
+	require.ErrorContains(t, err, "no WIT bundle")
 }

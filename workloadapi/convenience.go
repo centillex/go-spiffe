@@ -7,7 +7,6 @@ import (
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/exp/svid/witsvid"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 )
@@ -130,19 +129,34 @@ func ValidateJWTSVID(ctx context.Context, token, audience string, options ...Cli
 //
 // Experimental: subject to change.
 func FetchWITSVID(ctx context.Context, spiffeID string, options ...ClientOption) (*witsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.FetchWITSVID")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.FetchWITSVID(ctx, spiffeID)
 }
 
 // FetchWITSVIDs fetches all WIT-SVIDs using a short-lived client.
 //
 // Experimental: subject to change.
 func FetchWITSVIDs(ctx context.Context, spiffeID string, options ...ClientOption) ([]*witsvid.SVID, error) {
-	return nil, pqprofile.Unsupported("workloadapi.FetchWITSVIDs")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.FetchWITSVIDs(ctx, spiffeID)
 }
 
 // FetchWITBundles fetches WIT bundles using a short-lived client.
 //
 // Experimental: subject to change.
 func FetchWITBundles(ctx context.Context, options ...ClientOption) (*witbundle.Set, error) {
-	return nil, pqprofile.Unsupported("workloadapi.FetchWITBundles")
+	c, err := New(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.FetchWITBundles(ctx)
 }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/mldsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/exp/svid/witsvid"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
@@ -35,6 +37,9 @@ type report struct {
 	JWTVerified       bool   `json:"jwt_verified,omitempty"`
 	JWTDelegatedValid bool   `json:"jwt_delegated_validation,omitempty"`
 	JWTTamperRejected bool   `json:"jwt_tamper_rejected,omitempty"`
+	WITVerified       bool   `json:"wit_verified,omitempty"`
+	WITKeyBound       bool   `json:"wit_key_bound,omitempty"`
+	WITProofVerified  bool   `json:"wit_proof_verified,omitempty"`
 	Step6Complete     bool   `json:"step6_complete"`
 }
 
@@ -97,6 +102,7 @@ func run() error {
 	identity := flag.String("id", "", "expected workload SPIFFE ID")
 	root := flag.String("anchor-sha256", "", "independently provisioned SHA-256 of exact anchor DER")
 	jwtAudience := flag.String("jwt-audience", "", "optional audience for an ML-DSA-65 JWT-SVID check")
+	witCheck := flag.Bool("wit", false, "also fetch and verify an ML-DSA-65 WIT-SVID")
 	timeout := flag.Duration("timeout", 10*time.Second, "finite Workload API timeout (maximum one minute)")
 	flag.Parse()
 	if err := validateEndpoint(*endpoint); err != nil {
@@ -172,6 +178,35 @@ func run() error {
 		result.JWTVerified = true
 		result.JWTDelegatedValid = true
 		result.JWTTamperRejected = true
+	}
+
+	if *witCheck {
+		witSVID, err := client.FetchWITSVID(ctx, id.String())
+		if err != nil {
+			return errors.New("WIT-SVID fetch failed")
+		}
+		witBundles, err := client.FetchWITBundles(ctx)
+		if err != nil {
+			return errors.New("WIT bundle fetch failed")
+		}
+		verified, err := witsvid.ParseAndValidate(witSVID.Marshal(), witBundles)
+		if err != nil || verified.ID != id {
+			return errors.New("WIT-SVID validation failed")
+		}
+		if witSVID.PrivateKey == nil || !verified.PublicKey.Equal(witSVID.PrivateKey.PublicKey()) {
+			return errors.New("WIT-SVID cnf key does not match the delivered private key")
+		}
+		challenge := []byte("qspiffe-wit-proof")
+		proof, err := witSVID.PrivateKey.Sign(nil, challenge, &mldsa.Options{})
+		if err != nil {
+			return errors.New("WIT proof signing failed")
+		}
+		if err := mldsa.Verify(verified.PublicKey, challenge, proof, &mldsa.Options{}); err != nil {
+			return errors.New("WIT proof verification failed")
+		}
+		result.WITVerified = true
+		result.WITKeyBound = true
+		result.WITProofVerified = true
 	}
 
 	return json.NewEncoder(os.Stdout).Encode(result)

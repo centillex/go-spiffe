@@ -27,9 +27,10 @@ func AllowsKeyExchange(group tls.CurveID) bool {
 // from parsed cryptographic objects, never from untrusted claimed metadata.
 func AllowsAuthenticationAlgorithm(name string) bool { return name == "ML-DSA-65" }
 
-// AllowsIdentityFormat admits the two implemented formats and rejects unknown
-// formats as well as WIT.
-func AllowsIdentityFormat(name string) bool { return name == "X509-SVID" || name == "JWT-SVID" }
+// AllowsIdentityFormat admits the implemented formats and rejects unknown ones.
+func AllowsIdentityFormat(name string) bool {
+	return name == "X509-SVID" || name == "JWT-SVID" || name == "WIT-SVID"
+}
 
 func AllowsResumption() bool { return false }
 func AllowsEarlyData() bool  { return false }

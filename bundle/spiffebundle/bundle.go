@@ -17,7 +17,6 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/internal/jwtutil"
 	"github.com/spiffe/go-spiffe/v2/internal/x509util"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
@@ -111,16 +110,19 @@ func FromJWTAuthorities(trustDomain spiffeid.TrustDomain, jwtAuthorities map[str
 	return bundle
 }
 
-// FromWITAuthorities returns an empty bundle. WIT authorities are outside the
-// strict profile and are never admitted.
+// FromWITAuthorities creates a bundle from WIT authorities. Authorities that
+// are not ML-DSA-65 public keys are dropped.
 func FromWITAuthorities(trustDomain spiffeid.TrustDomain, witAuthorities map[string]crypto.PublicKey) *Bundle {
-	return New(trustDomain)
+	bundle := New(trustDomain)
+	bundle.SetWITAuthorities(witAuthorities)
+	return bundle
 }
 
-// FromWITBundle returns an empty bundle for the WIT bundle's trust domain.
-// WIT authorities are outside the strict profile and are never admitted.
+// FromWITBundle creates a bundle from a WIT bundle.
 func FromWITBundle(witBundle *witbundle.Bundle) *Bundle {
-	return New(witBundle.TrustDomain())
+	bundle := New(witBundle.TrustDomain())
+	bundle.SetWITAuthorities(witBundle.WITAuthorities())
+	return bundle
 }
 
 // TrustDomain returns the trust domain that the bundle belongs to.
@@ -284,9 +286,19 @@ func (b *Bundle) HasWITAuthority(keyID string) bool {
 }
 
 // AddWITAuthority adds a WIT authority to the bundle. If a WIT authority already exists
-// under the given key ID, it is replaced. A key ID must be specified.
+// under the given key ID, it is replaced. A key ID must be specified and the
+// authority must be an ML-DSA-65 public key.
 func (b *Bundle) AddWITAuthority(keyID string, witAuthority crypto.PublicKey) error {
-	return pqprofile.Unsupported("spiffebundle.AddWITAuthority")
+	if keyID == "" {
+		return wrapSpiffebundleErr(errors.New("keyID cannot be empty"))
+	}
+	if err := validateWITAuthority(witAuthority); err != nil {
+		return wrapSpiffebundleErr(err)
+	}
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+	b.witAuthorities[keyID] = witAuthority
+	return nil
 }
 
 // RemoveWITAuthority removes the WIT authority identified by the key ID from the bundle.
@@ -297,9 +309,18 @@ func (b *Bundle) RemoveWITAuthority(keyID string) {
 	delete(b.witAuthorities, keyID)
 }
 
-// SetWITAuthorities sets the WIT authorities in the bundle.
+// SetWITAuthorities sets the WIT authorities in the bundle. Entries that are
+// not ML-DSA-65 public keys are dropped.
 func (b *Bundle) SetWITAuthorities(witAuthorities map[string]crypto.PublicKey) {
-	// Authorities are never admitted under the strict profile.
+	filtered := make(map[string]crypto.PublicKey, len(witAuthorities))
+	for keyID, authority := range witAuthorities {
+		if keyID != "" && validateWITAuthority(authority) == nil {
+			filtered[keyID] = authority
+		}
+	}
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+	b.witAuthorities = filtered
 }
 
 // Empty returns true if the bundle has no X.509, JWT, or WIT authorities.
@@ -458,7 +479,10 @@ func (b *Bundle) WITBundle() *witbundle.Bundle {
 // It implements the witbundle.Source interface. An error will be returned if
 // the trust domain does not match that of the bundle.
 func (b *Bundle) GetWITBundleForTrustDomain(trustDomain spiffeid.TrustDomain) (*witbundle.Bundle, error) {
-	return nil, pqprofile.Unsupported("spiffebundle.GetWITBundleForTrustDomain")
+	if b.trustDomain != trustDomain {
+		return nil, wrapSpiffebundleErr(fmt.Errorf("no WIT bundle for trust domain %q", trustDomain))
+	}
+	return b.WITBundle(), nil
 }
 
 // Equal compares the bundle for equality against the given bundle.
@@ -509,6 +533,18 @@ func copySequenceNumber(sequenceNumber *uint64) *uint64 {
 	}
 	copied := *sequenceNumber
 	return &copied
+}
+
+func validateWITAuthority(witAuthority crypto.PublicKey) error {
+	publicKey, ok := witAuthority.(*mldsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("unsupported WIT authority key type %T", witAuthority)
+	}
+	if publicKey == nil || len(publicKey.Bytes()) != mldsa.MLDSA65().PublicKeySize() ||
+		publicKey.Parameters() != mldsa.MLDSA65() {
+		return errors.New("WIT authority is not an ML-DSA-65 public key")
+	}
+	return nil
 }
 
 func validateJWTAuthority(jwtAuthority crypto.PublicKey) error {

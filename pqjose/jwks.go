@@ -27,6 +27,9 @@ func ParseJWKS(data []byte) (map[string]*mldsa.PublicKey, error) {
 		if err != nil {
 			return nil, fmt.Errorf("pqjose: JWKS key %d: %w", i, err)
 		}
+		if keyID == "" {
+			return nil, errors.New("pqjose: JWKS key is missing a key ID")
+		}
 		if _, ok := keys[keyID]; ok {
 			return nil, fmt.Errorf("pqjose: duplicate key ID %q", keyID)
 		}
@@ -37,6 +40,11 @@ func ParseJWKS(data []byte) (map[string]*mldsa.PublicKey, error) {
 
 // MarshalJWKS encodes public keys as a deterministic JWK Set.
 func MarshalJWKS(keys map[string]*mldsa.PublicKey) ([]byte, error) {
+	return MarshalJWKSWithUse("", keys)
+}
+
+// MarshalJWKSWithUse encodes public keys with a JWK "use" value.
+func MarshalJWKSWithUse(use string, keys map[string]*mldsa.PublicKey) ([]byte, error) {
 	ids := make([]string, 0, len(keys))
 	for keyID := range keys {
 		ids = append(ids, keyID)
@@ -45,7 +53,7 @@ func MarshalJWKS(keys map[string]*mldsa.PublicKey) ([]byte, error) {
 
 	set := jwkSet{Keys: make([]json.RawMessage, 0, len(ids))}
 	for _, keyID := range ids {
-		encoded, err := MarshalPublicJWK(keyID, keys[keyID])
+		encoded, err := MarshalPublicJWKWithUse(keyID, use, keys[keyID])
 		if err != nil {
 			return nil, err
 		}

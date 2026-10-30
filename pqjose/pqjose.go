@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -54,6 +55,19 @@ func MarshalPublicJWK(keyID string, publicKey *mldsa.PublicKey) ([]byte, error) 
 	})
 }
 
+// MarshalPublicJWKNoKeyID encodes a public key as an AKP JWK without a kid.
+// It is used for confirmation keys such as WIT-SVID cnf.jwk members.
+func MarshalPublicJWKNoKeyID(publicKey *mldsa.PublicKey) ([]byte, error) {
+	if err := checkPublicKey(publicKey); err != nil {
+		return nil, err
+	}
+	return json.Marshal(JWK{
+		KeyType:   KeyTypeAKP,
+		Algorithm: Algorithm,
+		Public:    b64.EncodeToString(publicKey.Bytes()),
+	})
+}
+
 // MarshalPublicJWKWithUse encodes a public key as an AKP JWK with the given
 // JWK "use" value (for example "jwt-svid").
 func MarshalPublicJWKWithUse(keyID, use string, publicKey *mldsa.PublicKey) ([]byte, error) {
@@ -80,14 +94,19 @@ func MarshalPrivateJWK(keyID string, privateKey *mldsa.PrivateKey) ([]byte, erro
 	if privateKey.PublicKey().Parameters() != mldsa.MLDSA65() {
 		return nil, fmt.Errorf("pqjose: unsupported private key parameters %q", privateKey.PublicKey().Parameters())
 	}
-	encoded, err := MarshalPublicJWK(keyID, privateKey.PublicKey())
-	if err != nil {
-		return nil, err
-	}
 	var jwk JWK
-	if err := json.Unmarshal(encoded, &jwk); err != nil {
-		return nil, err
+	if keyID == "" {
+		jwk = JWK{KeyType: KeyTypeAKP, Algorithm: Algorithm}
+	} else {
+		encoded, err := MarshalPublicJWK(keyID, privateKey.PublicKey())
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(encoded, &jwk); err != nil {
+			return nil, err
+		}
 	}
+	jwk.Public = b64.EncodeToString(privateKey.PublicKey().Bytes())
 	jwk.Private = b64.EncodeToString(privateKey.Bytes())
 	return json.Marshal(jwk)
 }
@@ -108,9 +127,6 @@ func ParsePublicJWK(data []byte) (string, *mldsa.PublicKey, error) {
 	if jwk.Private != "" {
 		return "", nil, errors.New("pqjose: public JWK contains private material")
 	}
-	if jwk.KeyID == "" {
-		return "", nil, errors.New("pqjose: JWK is missing a key ID")
-	}
 	raw, err := b64.DecodeString(jwk.Public)
 	if err != nil || b64.EncodeToString(raw) != jwk.Public {
 		return "", nil, errors.New("pqjose: invalid public key encoding")
@@ -130,9 +146,6 @@ func ParsePrivateJWK(data []byte) (string, *mldsa.PrivateKey, error) {
 	}
 	if jwk.KeyType != KeyTypeAKP || jwk.Algorithm != Algorithm {
 		return "", nil, errors.New("pqjose: only ML-DSA-65 AKP keys are supported")
-	}
-	if jwk.KeyID == "" {
-		return "", nil, errors.New("pqjose: JWK is missing a key ID")
 	}
 	seed, err := b64.DecodeString(jwk.Private)
 	if err != nil || b64.EncodeToString(seed) != jwk.Private || len(seed) != mldsa.PrivateKeySize {
@@ -203,6 +216,12 @@ func (t *Token) Claims() []byte { return bytes.Clone(t.payload) }
 // SignJWT signs a compact JWS with the protected header alg=ML-DSA-65, the
 // supplied key ID, and typ=JWT. The payload is used verbatim.
 func SignJWT(keyID string, payload []byte, signer crypto.Signer) (string, error) {
+	return SignJWTWithType("JWT", keyID, payload, signer)
+}
+
+// SignJWTWithType signs a compact JWS with the given typ header. Only
+// alg=ML-DSA-65 is emitted.
+func SignJWTWithType(typ, keyID string, payload []byte, signer crypto.Signer) (string, error) {
 	if keyID == "" {
 		return "", errors.New("pqjose: key ID is required")
 	}
@@ -216,7 +235,7 @@ func SignJWT(keyID string, payload []byte, signer crypto.Signer) (string, error)
 	if err := checkPublicKey(publicKey); err != nil {
 		return "", err
 	}
-	header := Header{Algorithm: Algorithm, KeyID: keyID, Type: "JWT"}
+	header := Header{Algorithm: Algorithm, KeyID: keyID, Type: typ}
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
 		return "", err
@@ -229,9 +248,15 @@ func SignJWT(keyID string, payload []byte, signer crypto.Signer) (string, error)
 	return input + "." + b64.EncodeToString(signature), nil
 }
 
-// ParseJWT parses a compact JWS and validates its protected header. It does not
-// verify the signature.
+// ParseJWT parses a compact JWS and validates its protected header. It accepts
+// typ JWT or JOSE and does not verify the signature.
 func ParseJWT(token string) (*Token, error) {
+	return ParseJWTWithTypes(token, "JWT", "JOSE")
+}
+
+// ParseJWTWithTypes parses a compact JWS and requires typ to be one of the
+// supplied values.
+func ParseJWTWithTypes(token string, types ...string) (*Token, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, errors.New("pqjose: token must have three parts")
@@ -247,7 +272,7 @@ func ParseJWT(token string) (*Token, error) {
 	if header.Algorithm != Algorithm {
 		return nil, fmt.Errorf("pqjose: unsupported algorithm %q", header.Algorithm)
 	}
-	if header.Type != "" && header.Type != "JWT" && header.Type != "JOSE" {
+	if !slices.Contains(types, header.Type) {
 		return nil, fmt.Errorf("pqjose: unsupported token type %q", header.Type)
 	}
 	payload, err := b64.DecodeString(parts[1])

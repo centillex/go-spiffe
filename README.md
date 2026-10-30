@@ -4,7 +4,7 @@ This library is a convenient Go library for working with [SPIFFE](https://spiffe
 
 It leverages the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md), providing high level functionality that includes:
 * Establishing mutually authenticated TLS (__mTLS__) between workloads powered by SPIFFE.
-* Obtaining and validating [X509-SVIDs](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md) and ML-DSA-65 JWT-SVIDs. WIT operations remain rejected by this strict profile.
+* Obtaining and validating [X509-SVIDs](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md), ML-DSA-65 JWT-SVIDs and proof-of-possession WIT-SVIDs.
 * Federating trust between trust domains using [SPIFFE bundles](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Trust_Domain_and_Bundle.md#3-spiffe-bundles).
 * Bundle management.
 
@@ -15,9 +15,8 @@ SDK or production-ready PQ deployment**. [Certificate-path and transport
 enforcement](docs/STRICT_TLS_STATUS.md) now uses owned configurations and
 connections. Constructors return `*tlsconfig.Config`, not mutable `*tls.Config`;
 legacy hook/certificate-only authentication APIs fail explicitly. See the linked
-migration guide before upgrading. [JWT-SVIDs are signed and validated with ML-DSA-65 AKP keys](docs/TOKEN_SUPPORT.md);
-classical JOSE algorithms and `alg: none` are rejected. WIT remains explicitly
-unsupported through `pqprofile.ErrUnsupported`. [ML-DSA bundle
+migration guide before upgrading. [JWT and WIT SVIDs are signed and validated with ML-DSA-65 AKP keys](docs/TOKEN_SUPPORT.md);
+classical JOSE algorithms and `alg: none` are rejected. [ML-DSA bundle
 encoding and strict X.509 admission](docs/PQ_BUNDLE_FORMAT.md) include an
 independently implemented format round trip. A local two-domain PQ deployment is
 recorded in [the deployment status](docs/REAL_DEPLOYMENT_STATUS.md). [Source

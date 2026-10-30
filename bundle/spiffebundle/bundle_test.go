@@ -10,9 +10,7 @@ import (
 	"crypto/mldsa"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/spiffebundle"
-	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
 	"github.com/spiffe/go-spiffe/v2/internal/test"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 )
@@ -79,10 +77,10 @@ func TestParseFailures(t *testing.T) {
 
 	// Classical JWT entries are rejected; only ML-DSA-65 AKP is admitted.
 	_, err = spiffebundle.Load(td, jwtEntryPath)
-	require.ErrorContains(t, err, "classical JWT authorities are unsupported")
+	require.ErrorContains(t, err, "classical token authorities are unsupported")
 
 	_, err = spiffebundle.Load(td, witEntryPath)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
+	require.ErrorContains(t, err, "classical token authorities are unsupported")
 
 	// The X.509-only reader discards token entries and never admits them.
 	data, err := os.ReadFile(jwtEntryPath)
@@ -211,11 +209,13 @@ func TestJWTAuthorities(t *testing.T) {
 	classical := test.NewEC256Key(t)
 	require.ErrorContains(t, bundle.AddJWTAuthority("EC", classical), "unsupported JWT authority")
 
-	// WIT remains outside this change.
 	bundle = spiffebundle.FromWITAuthorities(td, authorities)
-	require.Empty(t, bundle.WITAuthorities())
-	require.ErrorIs(t, bundle.AddWITAuthority("KEY", key), pqprofile.ErrUnsupported)
-	_, err = bundle.GetWITBundleForTrustDomain(td)
-	require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-	require.True(t, spiffebundle.FromWITBundle(witbundle.New(td)).Empty())
+	require.Len(t, bundle.WITAuthorities(), 1)
+	require.True(t, bundle.HasWITAuthority("KEY"))
+	witBundle, err := bundle.GetWITBundleForTrustDomain(td)
+	require.NoError(t, err)
+	require.True(t, witBundle.HasWITAuthority("KEY"))
+	fromWITBundle := spiffebundle.FromWITBundle(witBundle)
+	require.True(t, fromWITBundle.HasWITAuthority("KEY"))
+	require.ErrorContains(t, bundle.AddWITAuthority("EC", test.NewEC256Key(t)), "unsupported WIT authority")
 }

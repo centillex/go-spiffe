@@ -4,12 +4,14 @@ import (
 	"testing"
 
 	"github.com/spiffe/go-spiffe/v2/exp/bundle/witbundle"
-	"github.com/spiffe/go-spiffe/v2/pqprofile"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 )
 
-var b1 = witbundle.New(td)
+var (
+	b1  = witbundle.New(td)
+	td2 = spiffeid.RequireTrustDomainFromString("example-2.org")
+)
 
 func TestNewSet(t *testing.T) {
 	s := witbundle.NewSet(b1)
@@ -79,11 +81,13 @@ func TestBundles(t *testing.T) {
 	require.Equal(t, td3, bundles[2].TrustDomain())
 }
 
-func TestSetGetWITBundleForTrustDomainIsUnsupported(t *testing.T) {
+func TestSetGetWITBundleForTrustDomain(t *testing.T) {
 	s := witbundle.NewSet(b1)
-	for _, trustDomain := range []spiffeid.TrustDomain{td, td2} {
-		b, err := s.GetWITBundleForTrustDomain(trustDomain)
-		require.ErrorIs(t, err, pqprofile.ErrUnsupported)
-		require.Nil(t, b)
-	}
+	b, err := s.GetWITBundleForTrustDomain(td)
+	require.NoError(t, err)
+	require.Same(t, b1, b)
+
+	b, err = s.GetWITBundleForTrustDomain(td2)
+	require.ErrorContains(t, err, "no WIT bundle")
+	require.Nil(t, b)
 }
