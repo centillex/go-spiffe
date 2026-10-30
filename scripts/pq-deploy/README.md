@@ -39,6 +39,16 @@ The script:
 7. verifies rejection of an unregistered identity and a wrong anchor pin;
 8. fails if private key material appears in exported evidence.
 
+## Attestor coverage
+
+```sh
+bash scripts/pq-deploy/run-sshpop.sh ../docs/evidence/step6
+```
+
+Verifies SSH POP attestation with ML-DSA issuance and untrusted-CA rejection.
+The full status matrix and bootstrap threat model are in
+[`docs/ATTESTOR_COVERAGE.md`](../../docs/ATTESTOR_COVERAGE.md).
+
 ## ML-DSA upstream authority
 
 ```sh
